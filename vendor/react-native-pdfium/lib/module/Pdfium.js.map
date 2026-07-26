@@ -1,0 +1,1 @@
+{"version":3,"names":["readPDF","filePath","global"],"sourceRoot":"../../src","sources":["Pdfium.ts"],"mappings":";;AAAA,OAAO,eAAeA,OAAOA,CAACC,QAAgB,EAAmB;EAC/D,OAAOC,MAAM,CAACF,OAAO,CAACC,QAAQ,CAAC;AACjC","ignoreList":[]}
