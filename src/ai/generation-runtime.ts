@@ -6,6 +6,7 @@ import { useRuntimeStore } from '@/stores/runtime-store';
 class GenerationRuntime {
   private module: LLMModule | null = null;
   private loadPromise: Promise<void> | null = null;
+  private isGenerating = false;
 
   async load() {
     if (this.module) {
@@ -44,21 +45,28 @@ class GenerationRuntime {
     return this.loadPromise;
   }
 
-  async generate(messages: Message[], onToken: (token: string) => void) {
-    if (!this.module) {
-      await this.load();
+  async generate(messages: Message[], onToken: (token: string) => void = () => undefined) {
+    if (this.isGenerating) {
+      throw new Error('Another local generation is already in progress.');
     }
-    if (!this.module) {
-      throw new Error('Gemma is not loaded.');
-    }
-
-    useRuntimeStore.getState().setGeneration({ phase: 'generating', error: null });
-    this.module.setTokenCallback({ tokenCallback: onToken });
+    this.isGenerating = true;
 
     try {
+      if (!this.module) {
+        await this.load();
+      }
+      if (!this.module) {
+        throw new Error('Gemma is not loaded.');
+      }
+
+      useRuntimeStore.getState().setGeneration({ phase: 'generating', error: null });
+      this.module.setTokenCallback({ tokenCallback: onToken });
       return await this.module.generate(messages);
     } finally {
-      useRuntimeStore.getState().setGeneration({ phase: 'ready' });
+      this.isGenerating = false;
+      if (this.module) {
+        useRuntimeStore.getState().setGeneration({ phase: 'ready' });
+      }
     }
   }
 

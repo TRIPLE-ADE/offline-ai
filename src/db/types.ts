@@ -41,3 +41,77 @@ export type MaterialChunk = {
 };
 
 export type CreateMaterialChunkInput = Omit<MaterialChunk, 'indexedAt'>;
+
+export type TopicStatus =
+  | 'not_started'
+  | 'learning'
+  | 'needs_review'
+  | 'completed';
+
+export type Topic = {
+  id: string;
+  materialId: string;
+  position: number;
+  title: string;
+  summary: string;
+  sourceChunkIds: string[];
+  status: TopicStatus;
+  bestScore: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateTopicInput = Pick<
+  Topic,
+  'id' | 'materialId' | 'position' | 'title' | 'summary' | 'sourceChunkIds'
+>;
+
+export type GeneratedArtifactKind = 'topic_map' | 'lesson' | 'quiz';
+
+export type GeneratedArtifact = {
+  id: string;
+  materialId: string;
+  topicId: string | null;
+  kind: GeneratedArtifactKind;
+  payloadJson: string;
+  promptVersion: string;
+  modelVersion: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type QuizAttempt = {
+  id: string;
+  topicId: string;
+  answers: number[];
+  score: number;
+  createdAt: string;
+};
+
+export type ChatMessageRole = 'user' | 'assistant' | 'system';
+export type ChatMessageStatus = 'pending' | 'complete' | 'failed' | 'interrupted';
+
+export type StoredCitation = {
+  chunkId: string;
+  label: string;
+  excerpt: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+};
+
+export type ChatThread = {
+  id: string;
+  materialId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  threadId: string;
+  role: ChatMessageRole;
+  content: string;
+  citations: StoredCitation[];
+  status: ChatMessageStatus;
+  createdAt: string;
+};

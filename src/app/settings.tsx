@@ -35,6 +35,34 @@ export default function SettingsScreen() {
             </ThemedView>
           ))}
         </ThemedView>
+
+        <ThemedView type="backgroundElement" style={styles.infoCard}>
+          <ThemedText type="smallBold">Privacy boundary</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            There is no account, analytics backend, or cloud sync. Imported files,
+            embeddings, generated artifacts, quiz attempts, and conversations remain in
+            application-private storage on this device.
+          </ThemedText>
+        </ThemedView>
+
+        <ThemedView type="backgroundElement" style={styles.infoCard}>
+          <ThemedText type="smallBold">Current limitations</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            TXT and clean selectable-text PDFs are supported. Scanned PDFs, OCR,
+            diagrams, multi-material courses, cloud backup, and probabilistic mastery
+            estimates are outside this deadline build. Local AI output can be wrong;
+            inspect the source excerpts shown with factual content.
+          </ThemedText>
+        </ThemedView>
+
+        <ThemedView type="backgroundElement" style={styles.infoCard}>
+          <ThemedText type="smallBold">Open-source foundation</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Built with Expo, React Native ExecuTorch, React Native RAG, OP-SQLite,
+            Expo SQLite, MiniLM embeddings, and Gemma 4 E2B. The architecture is
+            informed by Software Mansion’s Private Mind production reference.
+          </ThemedText>
+        </ThemedView>
       </ScrollView>
     </ThemedView>
   );
@@ -57,5 +85,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  infoCard: {
+    borderRadius: 18,
+    gap: Spacing.two,
+    padding: Spacing.three,
   },
 });

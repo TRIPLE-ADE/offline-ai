@@ -1,9 +1,9 @@
 # Offline Study Coach
 
-An Expo 57 development-build project for a local-first study coach. Stages 0–3
-establish the product boundary, the native AI/document dependency set, local
-SQLite persistence, material import, deterministic chunking, on-device MiniLM
-embeddings, persistent vector search, and grounded source retrieval.
+An Expo 57 development-build project for a local-first study coach. The
+deadline MVP turns one material into an ordered topic roadmap, grounded
+lessons, five-question knowledge checks, rule-based next recommendations, and
+a persisted Chat with Material experience.
 
 The app uses native modules such as React Native ExecuTorch, OP-SQLite, and
 PDFium. It therefore requires a development build and does not run in Expo Go.
@@ -22,7 +22,7 @@ guard. The local Expo config plugin isolates the Expo SQLite umbrella import
 during CocoaPods installation so both engines can coexist without merging
 their responsibilities.
 
-## Current Stage 3 flow
+## Complete offline learning flow
 
 ```text
 Import TXT or clean PDF
@@ -30,14 +30,73 @@ Import TXT or clean PDF
 → build deterministic overlapping passages
 → generate MiniLM embeddings on-device
 → persist vectors in OP-SQLite
-→ search the material locally
-→ inspect the retrieved source passages
+→ generate and persist a source-covered topic roadmap
+→ generate one cited lesson on demand
+→ generate and score five grounded questions
+→ persist progress and recommend the next action
+→ ask cited follow-up questions from fresh retrieved context
 ```
 
 TXT is the guaranteed format. PDF extraction is available as a compatibility
 candidate, but the current PDFium bridge does not preserve page-level
-provenance. Topic generation, lessons, quizzes, and generated chat answers
-remain later stages.
+provenance. When a page number is unavailable, the interface uses the stored
+section title or source-passage ordinal and never invents a page number.
+
+## Generation safety and recovery
+
+- Model output for topic maps, lessons, and quizzes is validated with Zod.
+- Malformed JSON receives one local repair attempt.
+- Topic generation has a deterministic, source-covered fallback.
+- Lessons and quizzes are not published unless their citation labels resolve
+  to stored chunks.
+- Quiz scoring and recommendation thresholds run deterministically in
+  TypeScript.
+- Chat persists the learner question before generation, uses only four prior
+  conversational messages, retrieves fresh material context for every turn,
+  and refuses low-evidence questions.
+- Completed roadmaps, lessons, quizzes, attempts, and chat messages survive
+  application restarts.
+
+## Repeatable deadline demo
+
+Use [`fixtures/demo/database-normalization.txt`](./fixtures/demo/database-normalization.txt)
+and validate against
+[`fixtures/demo/expected-results.json`](./fixtures/demo/expected-results.json).
+
+1. Open **Offline model setup** and load MiniLM and Gemma while online.
+2. Import `database-normalization.txt`.
+3. Prepare the material and wait for its local vector index.
+4. Turn on airplane mode.
+5. Generate the topic roadmap and open **Second Normal Form**.
+6. Generate the grounded lesson and inspect at least one source chip.
+7. Generate the quiz, answer all five questions, and inspect the recommendation.
+8. In **Ask this material**, ask:
+   - `What condition does Second Normal Form add beyond First Normal Form?`
+   - `Who invented database normalization?`
+9. Confirm the first answer is cited and the second is refused.
+10. Force-close and reopen the app; confirm the roadmap, lesson, attempt, and
+    chat thread remain available.
+
+The complete physical-device offline run is a release gate; native compilation
+and unit tests cannot prove model quality or device-specific memory behavior.
+
+## Current limitations
+
+- no OCR or scanned-PDF support
+- no DOCX, PowerPoint, audio, or image input
+- no multi-material courses or semester calendar
+- no cloud backup, account, analytics backend, or sync
+- no probabilistic mastery engine or exam-readiness score
+- locally generated content can still be wrong, so factual views expose source
+  provenance for learner inspection
+
+## Open-source attribution
+
+The app is built with Expo, React Native ExecuTorch, React Native RAG,
+OP-SQLite, Expo SQLite, MiniLM embeddings, and Gemma 4 E2B. Its model-lifecycle,
+persistence, and local-RAG approach was informed by Software Mansion's
+[Private Mind](https://github.com/software-mansion-labs/private-mind)
+production reference.
 
 ## Requirements
 
