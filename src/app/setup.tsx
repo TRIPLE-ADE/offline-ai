@@ -6,7 +6,6 @@ import { embeddingRuntime } from '@/ai/embedding-runtime';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { RuntimeCard } from '@/components/foundation/runtime-card';
 import { ScreenHeader } from '@/components/foundation/screen-header';
-import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useRuntimeStore } from '@/stores/runtime-store';

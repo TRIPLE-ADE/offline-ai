@@ -1,0 +1,45 @@
+{
+  "material": "database-normalization.txt",
+  "expectedTopics": [
+    "Purpose of normalization",
+    "Modification anomalies",
+    "Keys and functional dependencies",
+    "First Normal Form",
+    "Second Normal Form",
+    "Third Normal Form",
+    "Decomposition and integrity",
+    "Denormalization"
+  ],
+  "answerableQuestions": [
+    {
+      "question": "What three modification anomalies does normalization help prevent?",
+      "expectedTerms": ["update anomaly", "insertion anomaly", "deletion anomaly"],
+      "expectedSection": "2. Modification anomalies"
+    },
+    {
+      "question": "What does a functional dependency X to Y mean?",
+      "expectedTerms": ["X", "determines", "Y"],
+      "expectedSection": "3. Keys and functional dependencies"
+    },
+    {
+      "question": "What condition does Second Normal Form add beyond First Normal Form?",
+      "expectedTerms": ["whole candidate key", "partial dependency"],
+      "expectedSection": "5. Second Normal Form"
+    },
+    {
+      "question": "Why should LecturerName be separated from Course in the example?",
+      "expectedTerms": ["transitive dependency", "LecturerId"],
+      "expectedSection": "6. Third Normal Form"
+    },
+    {
+      "question": "When should denormalization be considered?",
+      "expectedTerms": ["measured performance problem", "profiling", "synchronization"],
+      "expectedSection": "8. When to denormalize"
+    }
+  ],
+  "unanswerableQuestions": [
+    "Who invented database normalization?",
+    "What SQL syntax creates an index in PostgreSQL?",
+    "Which database vendor has the largest market share?"
+  ]
+}

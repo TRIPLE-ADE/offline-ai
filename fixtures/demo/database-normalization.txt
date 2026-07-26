@@ -1,0 +1,63 @@
+DATABASE NORMALIZATION
+
+1. Why databases are normalized
+
+A relational database often starts as a collection of facts that need to be stored together. If all facts are placed in one large table, the same information may be repeated many times. Repetition wastes space and, more importantly, allows contradictory values to appear.
+
+Suppose a school stores StudentId, StudentName, CourseId, CourseTitle, LecturerId, and LecturerName in one enrollment table. A student's name is repeated for every course they take, and a lecturer's name is repeated for every enrollment in the lecturer's course. If one copy is changed but the others are not, the database becomes inconsistent.
+
+Normalization is the process of organizing relational data to reduce unnecessary duplication and avoid modification problems while preserving the facts and relationships the application needs.
+
+2. Modification anomalies
+
+An update anomaly occurs when one fact is stored in several rows and every copy must be changed. Missing one row leaves conflicting values.
+
+An insertion anomaly occurs when a fact cannot be recorded until an unrelated fact exists. For example, a new course could not be stored in the combined enrollment table until at least one student enrolls.
+
+A deletion anomaly occurs when deleting one fact accidentally removes another useful fact. Deleting the last enrollment for a course could also remove the only stored copy of the course title and lecturer.
+
+Normalization separates facts so that each fact can be inserted, updated, or deleted without unintentionally changing a different fact.
+
+3. Keys and functional dependencies
+
+A candidate key is a minimal set of attributes that uniquely identifies a row. One candidate key is selected as the primary key. A foreign key stores the value of a key from another table and represents a relationship between the tables.
+
+A functional dependency X → Y means that each value of X determines exactly one value of Y. In a Student table, StudentId → StudentName means that a particular StudentId determines one StudentName. Functional dependencies help identify which facts belong together.
+
+4. First Normal Form
+
+A table is in First Normal Form, or 1NF, when each field contains one atomic value and the table has no repeating groups. A field should not contain a comma-separated list of course identifiers. Instead, each enrollment should be represented as its own row.
+
+First Normal Form does not automatically remove all duplication. It establishes a consistent relational shape that later normal forms can improve.
+
+5. Second Normal Form
+
+A table is in Second Normal Form, or 2NF, when it is in 1NF and every non-key attribute depends on the whole candidate key, not only part of a composite key.
+
+Consider an Enrollment table whose key is the combination of StudentId and CourseId. If StudentName depends only on StudentId, it has a partial dependency and does not belong in Enrollment. StudentName should move to a Student table keyed by StudentId. CourseTitle should move to a Course table keyed by CourseId.
+
+Second Normal Form is mainly relevant when a table has a composite candidate key.
+
+6. Third Normal Form
+
+A table is in Third Normal Form, or 3NF, when it is in 2NF and non-key attributes do not depend transitively on the key through another non-key attribute.
+
+Suppose CourseId determines LecturerId and LecturerId determines LecturerName. Storing LecturerName in Course creates a transitive dependency from CourseId to LecturerName through LecturerId. Lecturer details should be stored in a Lecturer table, while Course stores LecturerId as a foreign key.
+
+Third Normal Form helps ensure that a non-key fact is stored with the key that directly determines it.
+
+7. Decomposition and integrity
+
+Decomposition divides one table into smaller related tables. A useful decomposition should be lossless: joining the related tables should reconstruct the original facts without inventing extra combinations or losing valid information.
+
+Database constraints protect integrity after decomposition. Primary-key constraints prevent duplicate identities, foreign-key constraints prevent broken relationships, unique constraints protect alternate keys, and not-null constraints require essential values.
+
+8. When to denormalize
+
+Normalization is a design default, not an absolute rule. A measured performance problem may justify deliberately duplicating a value or storing a precomputed result. This is denormalization.
+
+Denormalization introduces synchronization responsibility, so it should follow profiling and should include a clear mechanism for keeping duplicate data consistent. It should not be used simply because normalized queries require joins.
+
+SUMMARY
+
+Normalization organizes facts around the keys that determine them. First Normal Form removes repeating groups and requires atomic values. Second Normal Form removes partial dependencies on part of a composite key. Third Normal Form removes transitive dependencies between non-key attributes. Good decomposition reduces update, insertion, and deletion anomalies while preserving data through valid relationships.

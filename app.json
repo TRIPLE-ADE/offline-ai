@@ -50,7 +50,8 @@
             "deploymentTarget": "17.0"
           }
         }
-      ]
+      ],
+      "./plugins/with-expo-sqlite-header-isolation"
     ],
     "experiments": {
       "typedRoutes": true,

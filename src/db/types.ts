@@ -27,3 +27,17 @@ export type CreateMaterialInput = Pick<
   Material,
   'id' | 'title' | 'sourceUri' | 'localUri' | 'fileType' | 'fileSize'
 >;
+
+export type MaterialChunk = {
+  id: string;
+  materialId: string;
+  ordinal: number;
+  content: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  sectionTitle: string | null;
+  contentHash: string;
+  indexedAt: string | null;
+};
+
+export type CreateMaterialChunkInput = Omit<MaterialChunk, 'indexedAt'>;

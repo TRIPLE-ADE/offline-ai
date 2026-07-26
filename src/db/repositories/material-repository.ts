@@ -98,4 +98,13 @@ export class MaterialRepository {
       [status, message, new Date().toISOString(), id]
     );
   }
+
+  async updateChunkCount(id: string, chunkCount: number) {
+    await this.db.runAsync(
+      `UPDATE materials
+       SET chunk_count = ?, updated_at = ?
+       WHERE id = ?`,
+      [chunkCount, new Date().toISOString(), id]
+    );
+  }
 }

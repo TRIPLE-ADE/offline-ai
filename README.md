@@ -1,56 +1,159 @@
-# Welcome to your Expo app 👋
+# Offline Study Coach
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An Expo 57 development-build project for a local-first study coach. Stages 0–3
+establish the product boundary, the native AI/document dependency set, local
+SQLite persistence, material import, deterministic chunking, on-device MiniLM
+embeddings, persistent vector search, and grounded source retrieval.
 
-## Get started
+The app uses native modules such as React Native ExecuTorch, OP-SQLite, and
+PDFium. It therefore requires a development build and does not run in Expo Go.
 
-1. Install dependencies
+## SQLite responsibility boundary
 
-   ```bash
-   npm install
-   ```
+The two SQLite integrations are intentional and must remain separate:
 
-2. Start the app
+- **Expo SQLite** owns relational product metadata, migrations, materials,
+  chunks, progress, artifacts, and chat records.
+- **OP-SQLite with LibSQL** owns the specialized embedding/vector index used by
+  offline semantic retrieval.
 
-   ```bash
-   npx expo start
-   ```
+On iOS both upstream libraries inherit SQLite's common `SQLITE3_H` include
+guard. The local Expo config plugin isolates the Expo SQLite umbrella import
+during CocoaPods installation so both engines can coexist without merging
+their responsibilities.
 
-In the output, you'll find options to open the app in a
+## Current Stage 3 flow
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```text
+Import TXT or clean PDF
+→ extract selectable text
+→ build deterministic overlapping passages
+→ generate MiniLM embeddings on-device
+→ persist vectors in OP-SQLite
+→ search the material locally
+→ inspect the retrieved source passages
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+TXT is the guaranteed format. PDF extraction is available as a compatibility
+candidate, but the current PDFium bridge does not preserve page-level
+provenance. Topic generation, lessons, quizzes, and generated chat answers
+remain later stages.
 
-### Other setup steps
+## Requirements
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+- Node.js 24
+- pnpm 11
+- Xcode with an iOS 17+ simulator runtime
+- Android Studio, Android SDK, and Java 17
 
-## Learn more
+## Install and verify
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+pnpm install --frozen-lockfile
+pnpm verify
+pnpm dlx expo-doctor@latest
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Generate native projects
 
-## Join the community
+The `ios/` and `android/` directories are generated from `app.json` and the
+installed Expo config plugins.
 
-Join our community of developers creating universal apps.
+```bash
+pnpm prebuild
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Use a clean prebuild after changing native dependencies or config plugins:
+
+```bash
+pnpm prebuild:clean
+```
+
+The clean command replaces generated native directories, so do not keep
+handwritten native changes there.
+
+## Development server
+
+```bash
+pnpm start:dev-client
+```
+
+## iOS simulator
+
+Build, install, and launch on a selected simulator:
+
+```bash
+pnpm exec expo run:ios --device
+```
+
+To compile without launching a simulator:
+
+```bash
+xcodebuild \
+  -workspace ios/OfflineStudyCoach.xcworkspace \
+  -scheme OfflineStudyCoach \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+The project uses an iOS 17.0 minimum deployment target because the installed
+ExecuTorch native package requires it.
+
+## Android emulator
+
+Start an emulator in Android Studio, then build, install, and launch:
+
+```bash
+pnpm exec expo run:android --device
+```
+
+To build the development APK without installing it:
+
+```bash
+cd android
+./gradlew app:assembleDebug
+```
+
+The APK is generated at:
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Physical Android device — final compatibility gate
+
+Leave this until simulator and emulator checks pass. Enable developer options
+and USB debugging, connect the device, and verify its serial:
+
+```bash
+adb devices -l
+```
+
+Then either let Expo select the connected device:
+
+```bash
+pnpm exec expo run:android --device
+```
+
+or install the already-built APK explicitly:
+
+```bash
+adb -s <physical-device-serial> install -r \
+  android/app/build/outputs/apk/debug/app-debug.apk
+adb -s <physical-device-serial> reverse tcp:8081 tcp:8081
+pnpm start:dev-client
+```
+
+Run the offline model download and inference checks on the physical device.
+Simulators and emulators prove native integration and UI startup, but they do
+not replace device-specific memory, storage, and accelerator validation.
+
+## Useful project documents
+
+- [Architecture and implementation plan](./OFFLINE_STUDY_COACH_ARCHITECTURE_AND_IMPLEMENTATION_PLAN.md)
+- [Incremental delivery stages](./INCREMENTAL_DELIVERY_STAGES.md)
+- [Expo 57 dependency matrix](./EXPO_57_DEPENDENCY_MATRIX.md)
+- [Stage 0 fixture contract](./fixtures/README.md)

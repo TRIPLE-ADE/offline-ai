@@ -93,6 +93,7 @@ export default function LibraryScreen() {
                         <ThemedText type="smallBold">{material.title}</ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">
                           {material.fileType.toUpperCase()} · {material.status.replaceAll('_', ' ')}
+                          {material.chunkCount > 0 ? ` · ${material.chunkCount} passages` : ''}
                         </ThemedText>
                       </View>
                       <Ionicons name="chevron-forward" color={theme.textSecondary} size={20} />

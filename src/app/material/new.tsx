@@ -42,9 +42,9 @@ export default function ImportMaterialScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScreenHeader
-        eyebrow="Stage 2"
+        eyebrow="Stage 3"
         title="Import one material"
-        subtitle="The file is copied into private, app-controlled storage and remains available after the picker cache is cleared."
+        subtitle="The file is copied into private storage first. You can then extract, chunk, and index it entirely on this device."
       />
 
       <ThemedView type="backgroundElement" style={styles.card}>
