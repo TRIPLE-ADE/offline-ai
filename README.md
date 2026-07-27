@@ -1,6 +1,6 @@
-# Offline Study Coach
+# Soma Offline
 
-An Expo 57 development-build project for a local-first study coach. The
+An Expo 57 development-build project for a private, local-first study coach. The
 deadline MVP turns one material into an ordered topic roadmap, grounded
 lessons, five-question knowledge checks, rule-based next recommendations, and
 a persisted Chat with Material experience.
@@ -212,6 +212,7 @@ not replace device-specific memory, storage, and accelerator validation.
 
 ## Useful project documents
 
+- [Soma Offline product design and React Native handoff](./SOMA_OFFLINE_PRODUCT_DESIGN_SPEC.md)
 - [Architecture and implementation plan](./OFFLINE_STUDY_COACH_ARCHITECTURE_AND_IMPLEMENTATION_PLAN.md)
 - [Incremental delivery stages](./INCREMENTAL_DELIVERY_STAGES.md)
 - [Expo 57 dependency matrix](./EXPO_57_DEPENDENCY_MATRIX.md)

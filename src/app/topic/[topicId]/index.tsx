@@ -13,15 +13,17 @@ import {
 import { generationRuntime } from '@/ai/generation-runtime';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ScreenHeader } from '@/components/foundation/screen-header';
+import { SourcePreviewSheet } from '@/components/foundation/source-preview-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TopicRepository } from '@/db/repositories/topic-repository';
-import type { Topic } from '@/db/types';
+import type { StoredCitation, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
 import { lessonService } from '@/learning/lesson-service';
 import type { LessonArtifact } from '@/learning/schemas';
 import { useRuntimeStore } from '@/stores/runtime-store';
+import { userFacingError } from '@/utils/user-facing-error';
 
 export default function TopicLessonScreen() {
   const { topicId } = useLocalSearchParams<{ topicId: string }>();
@@ -33,7 +35,7 @@ export default function TopicLessonScreen() {
   const [lesson, setLesson] = useState<LessonArtifact | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedCitation, setExpandedCitation] = useState<string | null>(null);
+  const [selectedCitation, setSelectedCitation] = useState<StoredCitation | null>(null);
 
   const load = useCallback(async () => {
     const nextTopic = await new TopicRepository(db).getById(topicId);
@@ -54,9 +56,7 @@ export default function TopicLessonScreen() {
       setLesson(await lessonService.generate(db, topicId));
       await load();
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'Unable to generate this lesson.'
-      );
+      setError(userFacingError(caught, 'This lesson could not be completed. Retry when you are ready.'));
     } finally {
       setIsGenerating(false);
     }
@@ -65,7 +65,7 @@ export default function TopicLessonScreen() {
   if (!topic) {
     return (
       <ThemedView style={styles.centered}>
-        <ActivityIndicator color="#4A50CE" />
+        <ActivityIndicator color={theme.primary} />
         <ThemedText themeColor="textSecondary">Loading topic…</ThemedText>
       </ThemedView>
     );
@@ -83,14 +83,15 @@ export default function TopicLessonScreen() {
         />
 
         {!lesson ? (
-          <ThemedView type="backgroundElement" style={styles.generateCard}>
-            <Ionicons name="school-outline" color="#4A50CE" size={32} />
+          <ThemedView
+            style={[styles.generateCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="school-outline" color={theme.primary} size={32} />
             <ThemedText type="subtitle" style={styles.compactTitle}>
-              Learn from the source
+              Prepare this lesson
             </ThemedText>
             <ThemedText themeColor="textSecondary">
-              Gemma will teach this topic from a bounded set of retrieved passages and
-              attach the exact stored excerpts it used.
+              Soma will read the relevant passages and create a focused explanation with
+              sources you can inspect.
             </ThemedText>
             {error ? (
               <ThemedText type="small" themeColor="textSecondary">
@@ -102,11 +103,11 @@ export default function TopicLessonScreen() {
               label={
                 isGenerating
                   ? generation.phase === 'downloading'
-                    ? `Downloading Gemma · ${Math.round(generation.progress * 100)}%`
-                    : 'Generating grounded lesson…'
+                    ? `Installing offline AI · ${Math.round(generation.progress * 100)}%`
+                    : 'Generating your lesson…'
                   : error
-                    ? 'Retry lesson generation'
-                    : 'Generate lesson'
+                    ? 'Retry lesson'
+                    : 'Generate lesson offline'
               }
               leading={
                 isGenerating ? <ActivityIndicator color="#FFFFFF" /> : undefined
@@ -139,7 +140,7 @@ export default function TopicLessonScreen() {
 
             <ThemedView type="backgroundElement" style={styles.card}>
               <View style={styles.headingRow}>
-                <Ionicons name="bulb-outline" color="#4A50CE" size={24} />
+                <Ionicons name="bulb-outline" color={theme.primary} size={24} />
                 <ThemedText type="smallBold">Practical example</ThemedText>
               </View>
               <ThemedText>{lesson.example}</ThemedText>
@@ -159,29 +160,53 @@ export default function TopicLessonScreen() {
 
             <ThemedView type="backgroundElement" style={styles.warningCard}>
               <View style={styles.headingRow}>
-                <Ionicons name="warning-outline" color="#C77D00" size={24} />
+                <Ionicons name="warning-outline" color={theme.warning} size={24} />
                 <ThemedText type="smallBold">Common mistake</ThemedText>
               </View>
               <ThemedText>{lesson.commonMistake}</ThemedText>
             </ThemedView>
 
             <View style={styles.section}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Quick checks
-              </ThemedText>
-              {lesson.quickChecks.map((check, index) => (
-                <ThemedView
-                  key={check.question}
-                  type="backgroundElement"
-                  style={styles.checkCard}>
-                  <ThemedText type="smallBold">
-                    {index + 1}. {check.question}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Answer: {check.answer}
-                  </ThemedText>
-                </ThemedView>
-              ))}
+              <ThemedText type="subtitle" style={styles.sectionTitle}>Short recap</ThemedText>
+              <ThemedText>{lesson.keyPoints.join(' ')}</ThemedText>
+            </View>
+
+            <View style={styles.section}>
+              <ThemedText type="smallBold">Need another way to understand it?</ThemedText>
+              <View style={styles.quickActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    router.push({
+                      pathname: '/material/[materialId]/chat',
+                      params: {
+                        materialId: topic.materialId,
+                        topicTitle: topic.title,
+                        prompt: `Explain ${topic.title} more simply.`,
+                      },
+                    })
+                  }
+                  style={[styles.quickAction, { borderColor: theme.border }]}>
+                  <Ionicons name="sparkles-outline" color={theme.primary} size={19} />
+                  <ThemedText type="smallBold">Explain more simply</ThemedText>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    router.push({
+                      pathname: '/material/[materialId]/chat',
+                      params: {
+                        materialId: topic.materialId,
+                        topicTitle: topic.title,
+                        prompt: `Give me another practical example of ${topic.title}.`,
+                      },
+                    })
+                  }
+                  style={[styles.quickAction, { borderColor: theme.border }]}>
+                  <Ionicons name="bulb-outline" color={theme.primary} size={19} />
+                  <ThemedText type="smallBold">Give another example</ThemedText>
+                </Pressable>
+              </View>
             </View>
 
             <View style={styles.section}>
@@ -193,11 +218,9 @@ export default function TopicLessonScreen() {
                 {lesson.citations.map((citation) => (
                   <Pressable
                     key={citation.chunkId}
-                    onPress={() =>
-                      setExpandedCitation((current) =>
-                        current === citation.chunkId ? null : citation.chunkId
-                      )
-                    }
+                    accessibilityHint="Opens the supporting passage"
+                    accessibilityRole="button"
+                    onPress={() => setSelectedCitation(citation)}
                     style={[
                       styles.chip,
                       { backgroundColor: theme.backgroundSelected },
@@ -207,23 +230,10 @@ export default function TopicLessonScreen() {
                   </Pressable>
                 ))}
               </View>
-              {lesson.citations
-                .filter((citation) => citation.chunkId === expandedCitation)
-                .map((citation) => (
-                  <ThemedView
-                    key={citation.chunkId}
-                    type="backgroundElement"
-                    style={styles.sourceCard}>
-                    <ThemedText type="smallBold">{citation.label}</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {citation.excerpt}
-                    </ThemedText>
-                  </ThemedView>
-                ))}
             </View>
 
             <PrimaryButton
-              label="Take five-question check"
+              label="Start knowledge check"
               onPress={() =>
                 router.push({
                   pathname: '/topic/[topicId]/quiz',
@@ -232,8 +242,13 @@ export default function TopicLessonScreen() {
               }
             />
             <PrimaryButton
-              label="Regenerate lesson"
-              onPress={() => void handleGenerate()}
+              label="Ask about this topic"
+              onPress={() =>
+                router.push({
+                  pathname: '/material/[materialId]/chat',
+                  params: { materialId: topic.materialId, topicTitle: topic.title },
+                })
+              }
               variant="secondary"
             />
             {error ? (
@@ -244,6 +259,11 @@ export default function TopicLessonScreen() {
           </>
         )}
       </ScrollView>
+      <SourcePreviewSheet
+        citation={selectedCitation}
+        materialTitle={topic.title}
+        onClose={() => setSelectedCitation(null)}
+      />
     </ThemedView>
   );
 }
@@ -261,7 +281,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   generateCard: {
-    borderRadius: 22,
+    borderRadius: Radius.large,
+    borderWidth: 1,
     gap: Spacing.three,
     marginHorizontal: Spacing.four,
     padding: Spacing.four,
@@ -274,14 +295,14 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
   },
   warningCard: {
-    borderColor: '#C77D00',
+    borderColor: '#986300',
     borderRadius: 18,
     borderWidth: 1,
     gap: Spacing.two,
     marginHorizontal: Spacing.four,
     padding: Spacing.three,
   },
-  label: { color: '#4A50CE', letterSpacing: 1 },
+  label: { color: '#3346B8', letterSpacing: 1 },
   section: {
     gap: Spacing.two,
     paddingHorizontal: Spacing.four,
@@ -298,7 +319,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   bullet: {
-    backgroundColor: '#4A50CE',
+    backgroundColor: '#3346B8',
     borderRadius: 4,
     height: 8,
     marginTop: 8,
@@ -317,15 +338,21 @@ const styles = StyleSheet.create({
   },
   chip: {
     alignItems: 'center',
-    borderRadius: 99,
+    borderRadius: Radius.small,
     flexDirection: 'row',
     gap: Spacing.one,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
-  sourceCard: {
-    borderRadius: 16,
+  quickActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  quickAction: {
+    alignItems: 'center',
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    flexDirection: 'row',
     gap: Spacing.two,
-    padding: Spacing.three,
+    minHeight: TouchTarget,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
   },
 });

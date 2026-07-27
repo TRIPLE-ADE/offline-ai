@@ -3,25 +3,36 @@ import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 type ScreenHeaderProps = {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  compact?: boolean;
 };
 
-export function ScreenHeader({ eyebrow, title, subtitle, action }: ScreenHeaderProps) {
+export function ScreenHeader({
+  eyebrow,
+  title,
+  subtitle,
+  action,
+  compact = false,
+}: ScreenHeaderProps) {
+  const theme = useTheme();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.compact]}>
       <View style={styles.headingRow}>
         <View style={styles.heading}>
-          <ThemedText type="smallBold" style={styles.eyebrow}>
-            {eyebrow.toUpperCase()}
-          </ThemedText>
-          <ThemedText type="subtitle" style={styles.title}>
-            {title}
-          </ThemedText>
+          {eyebrow ? (
+            <View style={[styles.eyebrowRow, { backgroundColor: theme.primarySoft }]}>
+              <ThemedText type="caption" style={{ color: theme.primary }}>
+                {eyebrow.toUpperCase()}
+              </ThemedText>
+            </View>
+          ) : null}
+          <ThemedText type={compact ? 'title' : 'display'}>{title}</ThemedText>
         </View>
         {action}
       </View>
@@ -40,25 +51,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.four,
   },
+  compact: { paddingTop: Spacing.three },
   headingRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     gap: Spacing.three,
     justifyContent: 'space-between',
   },
-  heading: {
-    flex: 1,
-    gap: Spacing.one,
+  heading: { flex: 1, gap: Spacing.two },
+  eyebrowRow: {
+    alignSelf: 'flex-start',
+    borderRadius: 6,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
-  eyebrow: {
-    color: '#4A50CE',
-    letterSpacing: 1.1,
-  },
-  title: {
-    fontSize: 34,
-    lineHeight: 40,
-  },
-  subtitle: {
-    maxWidth: 620,
-  },
+  subtitle: { maxWidth: 620 },
 });

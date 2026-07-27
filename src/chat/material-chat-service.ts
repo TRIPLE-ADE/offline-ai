@@ -12,7 +12,7 @@ import {
 } from '@/retrieval/context-builder';
 
 const REFUSAL =
-  'I can’t answer that from this material. Try asking about a topic covered in the imported source.';
+  'I couldn’t find enough information in this material to answer that confidently. Try asking about a topic covered in the imported source.';
 
 type AskOptions = {
   onToken?: (content: string) => void;

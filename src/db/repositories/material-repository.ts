@@ -107,4 +107,12 @@ export class MaterialRepository {
       [chunkCount, new Date().toISOString(), id]
     );
   }
+
+  async delete(id: string) {
+    await this.db.runAsync('DELETE FROM materials WHERE id = ?', [id]);
+  }
+
+  async deleteAll() {
+    await this.db.runAsync('DELETE FROM materials');
+  }
 }

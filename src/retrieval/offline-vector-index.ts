@@ -96,6 +96,13 @@ class OfflineVectorIndex {
       predicate: (value) => value.metadata?.materialId === materialId,
     });
   }
+
+  async deleteMaterial(materialId: string) {
+    const store = await this.getStore();
+    await store.delete({
+      predicate: (value) => value.metadata?.materialId === materialId,
+    });
+  }
 }
 
 export const offlineVectorIndex = new OfflineVectorIndex();

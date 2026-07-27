@@ -1,44 +1,55 @@
 import { Ionicons } from '@expo/vector-icons';
+import { File } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 
+import { generationRuntime } from '@/ai/generation-runtime';
 import { PrimaryButton } from '@/components/foundation/primary-button';
+import { ProgressBar } from '@/components/foundation/progress-bar';
 import { ScreenHeader } from '@/components/foundation/screen-header';
+import { StatePanel } from '@/components/foundation/state-panel';
+import { StatusBadge } from '@/components/foundation/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { MaterialRepository } from '@/db/repositories/material-repository';
 import { TopicRepository } from '@/db/repositories/topic-repository';
-import type { Material, Topic } from '@/db/types';
+import type { Material, MaterialStatus, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
 import { topicRoadmapService } from '@/learning/topic-roadmap-service';
 import { materialProcessingService } from '@/materials/process-material';
-import {
-  retrieveGroundedPassages,
-  type GroundedPassage,
-} from '@/retrieval/grounded-retrieval';
+import { offlineVectorIndex } from '@/retrieval/offline-vector-index';
 import { useRuntimeStore } from '@/stores/runtime-store';
+import { userFacingError } from '@/utils/user-facing-error';
 
-function statusIcon(topic: Topic) {
-  switch (topic.status) {
-    case 'completed':
-      return 'checkmark-circle';
-    case 'needs_review':
-      return 'refresh-circle';
-    case 'learning':
-      return 'play-circle';
-    default:
-      return 'ellipse-outline';
-  }
+const PROCESS_STEPS: { status: MaterialStatus; label: string }[] = [
+  { status: 'imported', label: 'Stored privately' },
+  { status: 'extracting', label: 'Reading selectable text' },
+  { status: 'chunking', label: 'Organizing passages' },
+  { status: 'indexing', label: 'Preparing offline search' },
+  { status: 'ready', label: 'Ready to study' },
+];
+
+function topicIcon(status: Topic['status']) {
+  if (status === 'completed') return 'checkmark-circle';
+  if (status === 'needs_review') return 'refresh-circle';
+  if (status === 'learning') return 'play-circle';
+  return 'ellipse-outline';
+}
+
+function currentStep(status: MaterialStatus) {
+  if (status === 'generating_topics' || status === 'ready') return 4;
+  if (status === 'failed') return 0;
+  return Math.max(0, PROCESS_STEPS.findIndex((step) => step.status === status));
 }
 
 export default function MaterialScreen() {
@@ -47,16 +58,12 @@ export default function MaterialScreen() {
   const router = useRouter();
   const theme = useTheme();
   const embedding = useRuntimeStore((state) => state.embedding);
-  const generation = useRuntimeStore((state) => state.generation);
   const [material, setMaterial] = useState<Material | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGeneratingRoadmap, setIsGeneratingRoadmap] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<GroundedPassage[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
 
   const load = useCallback(async () => {
     const [nextMaterial, nextTopics] = await Promise.all([
@@ -74,311 +81,300 @@ export default function MaterialScreen() {
     }, [load])
   );
 
-  const coverage = useMemo(
-    () => new Set(topics.flatMap((topic) => topic.sourceChunkIds)).size,
-    [topics]
-  );
-  const continueTopic =
-    topics.find((topic) => topic.status !== 'completed') ?? topics[0];
+  const coverage = useMemo(() => new Set(topics.flatMap((topic) => topic.sourceChunkIds)).size, [topics]);
+  const completed = topics.filter((topic) => topic.status === 'completed').length;
+  const recommended =
+    topics.find((topic) => topic.status === 'needs_review') ??
+    topics.find((topic) => topic.status === 'learning') ??
+    topics.find((topic) => topic.status === 'not_started') ??
+    topics[topics.length - 1];
+  const lastStudied = [...topics]
+    .filter((topic) => topic.status !== 'not_started')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 
-  const handleProcess = async () => {
+  const process = async () => {
     setError(null);
-    setResults([]);
     setIsProcessing(true);
     try {
-      const indexedMaterial = await materialProcessingService.process(
-        db,
-        materialId,
-        ({ status, message }) => {
-          setProcessingMessage(message);
-          setMaterial((current) =>
-            current ? { ...current, status, statusMessage: message } : current
-          );
-        }
-      );
-      setMaterial(indexedMaterial);
-      setProcessingMessage(indexedMaterial.statusMessage);
+      const next = await materialProcessingService.process(db, materialId, ({ status, message }) => {
+        setProcessingMessage(message);
+        setMaterial((value) => (value ? { ...value, status, statusMessage: message } : value));
+      });
+      setMaterial(next);
+      setProcessingMessage('Offline search is ready. Create a roadmap when you are ready.');
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'Unable to index this material.'
-      );
+      setError(userFacingError(caught, 'This material could not be prepared. Retry without importing it again.'));
       await load();
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleGenerateRoadmap = async () => {
+  const generateRoadmap = async () => {
     setError(null);
     setIsGeneratingRoadmap(true);
-    setProcessingMessage('Preparing the local topic roadmap…');
+    setProcessingMessage('Organizing your material into a recommended study order…');
     try {
       setTopics(await topicRoadmapService.generate(db, materialId));
       await load();
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'Unable to generate the learning roadmap.'
-      );
+      setError(userFacingError(caught, 'The roadmap could not be created. Retry without preparing the material again.'));
       await load();
     } finally {
       setIsGeneratingRoadmap(false);
     }
   };
 
-  const handleSearch = async () => {
-    setError(null);
-    setIsSearching(true);
-    try {
-      setResults(await retrieveGroundedPassages(materialId, query));
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'Unable to search this material.'
-      );
-    } finally {
-      setIsSearching(false);
-    }
+  const confirmDelete = () => {
+    if (!material) return;
+    Alert.alert(
+      'Delete this material?',
+      `This permanently deletes “${material.title}”, its study progress, lessons, questions, and chat history from this device.`,
+      [
+        { text: 'Keep material', style: 'cancel' },
+        {
+          text: 'Delete material',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              await offlineVectorIndex.deleteMaterial(material.id);
+              await new MaterialRepository(db).delete(material.id);
+              const file = new File(material.localUri);
+              if (file.exists) file.delete();
+              router.replace('/');
+            })().catch((caught) =>
+              setError(caught instanceof Error ? caught.message : 'The material could not be deleted.')
+            );
+          },
+        },
+      ]
+    );
   };
-
-  const openTopic = (topicId: string) =>
-    router.push({
-      pathname: '/topic/[topicId]',
-      params: { topicId },
-    });
 
   if (!material) {
     return (
       <ThemedView style={styles.centered}>
-        <ActivityIndicator color="#4A50CE" />
-        <ThemedText themeColor="textSecondary">Loading material…</ThemedText>
+        <ActivityIndicator color={theme.primary} />
+        <ThemedText themeColor="textSecondary">Opening material…</ThemedText>
       </ThemedView>
     );
   }
 
-  const isReady =
-    material.status === 'ready' || material.status === 'generating_topics';
-  const isBusy = isProcessing || isGeneratingRoadmap;
-  const displayMessage = error ?? processingMessage ?? material.statusMessage;
+  const isReady = material.status === 'ready' || material.status === 'generating_topics';
+  const busy = isProcessing || isGeneratingRoadmap;
+  const stepIndex = currentStep(material.status);
+  const processProgress =
+    material.status === 'indexing' && embedding.progress > 0
+      ? 0.58 + embedding.progress * 0.32
+      : Math.max(0.08, stepIndex / (PROCESS_STEPS.length - 1));
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHeader
-          eyebrow={`${material.fileType.toUpperCase()} · Offline`}
+          eyebrow={`${material.fileType.toUpperCase()} · On this device`}
           title={material.title}
-          subtitle="A private learning roadmap, grounded lessons, knowledge checks, and material-only chat."
+          subtitle={
+            topics.length > 0
+              ? `${completed} of ${topics.length} topics completed`
+              : 'Prepare this material once, then study and ask questions without internet.'
+          }
+          action={
+            <Pressable
+              accessibilityLabel="Material options"
+              accessibilityRole="button"
+              onPress={confirmDelete}
+              style={[styles.iconButton, { borderColor: theme.border }]}>
+              <Ionicons name="ellipsis-horizontal" color={theme.text} size={22} />
+            </Pressable>
+          }
         />
 
-        <ThemedView type="backgroundElement" style={styles.statusCard}>
-          <View style={styles.row}>
-            {isBusy ? (
-              <ActivityIndicator color="#4A50CE" />
-            ) : (
-              <Ionicons
-                name={isReady ? 'shield-checkmark' : 'document-lock-outline'}
-                color={theme.text}
-                size={24}
-              />
-            )}
-            <View style={styles.flex}>
-              <ThemedText type="smallBold">
-                {isReady
-                  ? `${material.chunkCount} private source passages`
-                  : 'Stored privately on this device'}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {displayMessage ??
-                  'Prepare a local index before creating the learning journey.'}
-              </ThemedText>
-              {isBusy &&
-              (embedding.progress > 0 || generation.progress > 0) ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {isGeneratingRoadmap ? 'Gemma' : 'MiniLM'} ·{' '}
-                  {Math.round(
-                    (isGeneratingRoadmap
-                      ? generation.progress
-                      : embedding.progress) * 100
-                  )}
-                  %
-                </ThemedText>
-              ) : null}
-            </View>
-          </View>
-        </ThemedView>
-
         {!isReady ? (
-          <PrimaryButton
-            disabled={isBusy}
-            label={
-              isBusy
-                ? 'Preparing offline search…'
-                : material.status === 'failed'
-                  ? 'Retry offline preparation'
-                  : 'Prepare material offline'
-            }
-            onPress={() => void handleProcess()}
-          />
+          <View style={[styles.processing, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.row}>
+              <View style={styles.flex}>
+                <ThemedText type="subtitle">
+                  {material.status === 'failed' ? 'Preparation needs attention' : 'Preparing for offline study'}
+                </ThemedText>
+                <ThemedText themeColor="textSecondary">
+                  {error ?? processingMessage ?? 'Your imported file is safe and ready to prepare.'}
+                </ThemedText>
+              </View>
+              {busy ? <ActivityIndicator color={theme.primary} /> : null}
+            </View>
+            {busy ? <ProgressBar value={processProgress} accessibilityLabel="Material preparation" /> : null}
+            <View style={styles.stepList}>
+              {PROCESS_STEPS.map((step, index) => {
+                const done = index < stepIndex || material.status === 'ready';
+                const active = index === stepIndex && busy;
+                return (
+                  <View key={step.label} style={styles.step}>
+                    <Ionicons
+                      name={done ? 'checkmark-circle' : active ? 'sync-circle' : 'ellipse-outline'}
+                      color={done ? theme.success : active ? theme.primary : theme.textTertiary}
+                      size={20}
+                    />
+                    <ThemedText type="small" style={{ color: active ? theme.text : theme.textSecondary }}>
+                      {step.label}
+                    </ThemedText>
+                  </View>
+                );
+              })}
+            </View>
+            <ThemedText type="caption" themeColor="textSecondary">
+              You may leave this screen. Keep Soma open while preparation is running.
+            </ThemedText>
+            <PrimaryButton
+              disabled={busy}
+              label={
+                busy
+                  ? 'Preparing material…'
+                  : material.status === 'failed'
+                    ? 'Retry preparation'
+                    : 'Prepare material'
+              }
+              loading={busy}
+              onPress={() => void process()}
+            />
+          </View>
         ) : null}
 
         {isReady && topics.length === 0 ? (
-          <ThemedView type="backgroundElement" style={styles.heroCard}>
-            <Ionicons name="map-outline" color="#4A50CE" size={30} />
-            <ThemedText type="subtitle" style={styles.cardTitle}>
-              Build your learning roadmap
-            </ThemedText>
-            <ThemedText themeColor="textSecondary">
-              Gemma will organize the indexed passages into ordered, traceable topics.
-              If structured generation fails, the app falls back to the material’s
-              stored sections.
-            </ThemedText>
-            <PrimaryButton
-              disabled={isGeneratingRoadmap}
-              label={
-                isGeneratingRoadmap
-                  ? 'Generating roadmap locally…'
-                  : 'Generate topic roadmap'
-              }
-              leading={
-                isGeneratingRoadmap ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : undefined
-              }
-              onPress={() => void handleGenerateRoadmap()}
-            />
-          </ThemedView>
-        ) : null}
-
-        {topics.length > 0 ? (
-          <View style={styles.section}>
-            <View style={styles.sectionTitleRow}>
-              <View style={styles.flex}>
-                <ThemedText type="subtitle" style={styles.cardTitle}>
-                  Learning roadmap
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {topics.length} topics · {coverage} of {material.chunkCount} passages
-                  covered
-                </ThemedText>
-              </View>
-              <Ionicons name="git-network-outline" color={theme.text} size={24} />
-            </View>
-
-            {topics.map((topic) => (
-              <Pressable key={topic.id} onPress={() => openTopic(topic.id)}>
-                <ThemedView type="backgroundElement" style={styles.topicCard}>
-                  <Ionicons
-                    name={statusIcon(topic)}
-                    color={topic.status === 'needs_review' ? '#C77D00' : '#4A50CE'}
-                    size={24}
-                  />
-                  <View style={styles.flex}>
-                    <ThemedText type="smallBold">
-                      {topic.position + 1}. {topic.title}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {topic.summary}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {topic.sourceChunkIds.length} source passage
-                      {topic.sourceChunkIds.length === 1 ? '' : 's'}
-                      {topic.bestScore !== null
-                        ? ` · Best score ${Math.round(topic.bestScore)}%`
-                        : ''}
-                    </ThemedText>
-                  </View>
-                  <Ionicons name="chevron-forward" color={theme.textSecondary} size={20} />
-                </ThemedView>
-              </Pressable>
-            ))}
-
-            {continueTopic ? (
-              <PrimaryButton
-                label={
-                  continueTopic.status === 'not_started'
-                    ? 'Start learning'
-                    : 'Continue learning'
-                }
-                onPress={() => openTopic(continueTopic.id)}
-              />
-            ) : null}
-          </View>
-        ) : null}
-
-        {isReady ? (
-          <ThemedView type="backgroundElement" style={styles.searchCard}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="search-outline" color={theme.text} size={22} />
-              <View style={styles.flex}>
-                <ThemedText type="smallBold">Inspect local retrieval</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Optional diagnostic: see the exact passages later used by lessons and
-                  chat.
-                </ThemedText>
-              </View>
-            </View>
-            <TextInput
-              accessibilityLabel="Question or search terms"
-              multiline
-              onChangeText={setQuery}
-              placeholder="What does Second Normal Form add?"
-              placeholderTextColor={theme.textSecondary}
-              style={[
-                styles.input,
-                { borderColor: theme.backgroundSelected, color: theme.text },
-              ]}
-              value={query}
-            />
-            <PrimaryButton
-              disabled={isSearching || query.trim().length < 3}
-              label={isSearching ? 'Searching locally…' : 'Find source passages'}
-              onPress={() => void handleSearch()}
-              variant="secondary"
-            />
-          </ThemedView>
-        ) : null}
-
-        {results.length > 0 ? (
-          <View style={styles.section}>
-            <ThemedText type="smallBold">Most relevant local evidence</ThemedText>
-            {results.map((result) => (
-              <ThemedView
-                key={result.chunkId}
-                type="backgroundElement"
-                style={styles.resultCard}>
-                <ThemedText type="smallBold">{result.sourceLabel}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {result.content}
-                </ThemedText>
-              </ThemedView>
-            ))}
-          </View>
-        ) : null}
-
-        {isReady ? (
-          <PrimaryButton
-            label="Ask this material"
-            onPress={() =>
-              router.push({
-                pathname: '/material/[materialId]/chat',
-                params: { materialId },
-              })
+          <StatePanel
+            actionLabel={isGeneratingRoadmap ? 'Creating roadmap…' : 'Create topic roadmap'}
+            body="Soma will organize the material into a recommended order. You will still be free to open any topic."
+            icon="map-outline"
+            onAction={() => void generateRoadmap()}
+            secondaryLabel={isGeneratingRoadmap ? 'Stop generation' : 'Chat with material'}
+            onSecondary={() =>
+              isGeneratingRoadmap
+                ? generationRuntime.interrupt()
+                : router.push({ pathname: '/material/[materialId]/chat', params: { materialId } })
             }
-            variant="secondary"
+            title="Offline search is ready"
           />
         ) : null}
 
-        <ThemedView type="backgroundElement" style={styles.limitCard}>
-          <ThemedText type="smallBold">Private and offline after setup</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            Files, learning history, and answers stay on this device. Generated content
-            can be wrong, so factual views expose their stored source excerpts. Scanned
-            PDFs are not supported in this build.
-          </ThemedText>
-        </ThemedView>
+        {topics.length > 0 ? (
+          <>
+            <View style={styles.metrics}>
+              {[
+                ['Topics', topics.length],
+                ['Passages', material.chunkCount],
+                ['Progress', `${Math.round((completed / topics.length) * 100)}%`],
+              ].map(([label, value]) => (
+                <View key={label as string} style={[styles.metric, { borderColor: theme.border }]}>
+                  <ThemedText type="heading">{value}</ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">{label}</ThemedText>
+                </View>
+              ))}
+            </View>
+
+            {recommended ? (
+              <View style={[styles.recommendation, { backgroundColor: theme.primarySoft }]}>
+                <ThemedText type="caption" style={{ color: theme.primary }}>RECOMMENDED NEXT</ThemedText>
+                <ThemedText type="heading">{recommended.title}</ThemedText>
+                <ThemedText themeColor="textSecondary">
+                  {recommended.status === 'needs_review'
+                    ? 'A recent check suggests reviewing this topic.'
+                    : recommended.summary}
+                </ThemedText>
+                <PrimaryButton
+                  label={recommended.status === 'needs_review' ? 'Review topic' : 'Continue studying'}
+                  onPress={() =>
+                    router.push({ pathname: '/topic/[topicId]', params: { topicId: recommended.id } })
+                  }
+                />
+              </View>
+            ) : null}
+
+            <View style={styles.quickActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push({ pathname: '/material/[materialId]/chat', params: { materialId } })}
+                style={[styles.quickAction, { borderColor: theme.border }]}>
+                <Ionicons name="chatbubble-ellipses-outline" color={theme.primary} size={22} />
+                <ThemedText type="smallBold">Chat</ThemedText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/progress')}
+                style={[styles.quickAction, { borderColor: theme.border }]}>
+                <Ionicons name="stats-chart-outline" color={theme.primary} size={22} />
+                <ThemedText type="smallBold">Progress</ThemedText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={confirmDelete}
+                style={[styles.quickAction, { borderColor: theme.border }]}>
+                <Ionicons name="trash-outline" color={theme.danger} size={22} />
+                <ThemedText type="smallBold">Options</ThemedText>
+              </Pressable>
+            </View>
+
+            {lastStudied ? (
+              <ThemedText type="small" themeColor="textSecondary" style={styles.horizontal}>
+                Last studied: {lastStudied.title}
+              </ThemedText>
+            ) : null}
+
+            <View style={styles.roadmap}>
+              <View style={styles.sectionHeading}>
+                <View style={styles.flex}>
+                  <ThemedText type="subtitle">Topic roadmap</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {coverage} of {material.chunkCount} source passages covered
+                  </ThemedText>
+                </View>
+                <StatusBadge label="Recommended order" tone="neutral" />
+              </View>
+              {topics.map((topic) => (
+                <Pressable
+                  key={topic.id}
+                  accessibilityHint="Opens this topic"
+                  accessibilityRole="button"
+                  onPress={() =>
+                    router.push({ pathname: '/topic/[topicId]', params: { topicId: topic.id } })
+                  }
+                  style={({ pressed }) => [
+                    styles.topic,
+                    { borderBottomColor: theme.divider, opacity: pressed ? 0.72 : 1 },
+                  ]}>
+                  <Ionicons
+                    name={topicIcon(topic.status)}
+                    color={
+                      topic.status === 'completed'
+                        ? theme.success
+                        : topic.status === 'needs_review'
+                          ? theme.warning
+                          : theme.primary
+                    }
+                    size={24}
+                  />
+                  <View style={styles.flex}>
+                    <ThemedText type="smallBold">{topic.position + 1}. {topic.title}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
+                      {topic.summary}
+                    </ThemedText>
+                    <ThemedText type="caption" themeColor="textTertiary">
+                      About {Math.max(5, topic.sourceChunkIds.length * 3)} min · {topic.sourceChunkIds.length} source passage{topic.sourceChunkIds.length === 1 ? '' : 's'}
+                      {topic.bestScore === null ? '' : ` · Latest ${Math.round(topic.bestScore)}%`}
+                    </ThemedText>
+                  </View>
+                  <Ionicons name="chevron-forward" color={theme.textTertiary} size={20} />
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {error && isReady ? (
+          <View style={[styles.error, { backgroundColor: theme.dangerSoft }]}>
+            <ThemedText type="smallBold" style={{ color: theme.danger }}>This step needs attention</ThemedText>
+            <ThemedText type="small" style={{ color: theme.danger }}>{error}</ThemedText>
+          </View>
+        ) : null}
       </ScrollView>
     </ThemedView>
   );
@@ -386,74 +382,56 @@ export default function MaterialScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: {
-    gap: Spacing.three,
-    paddingBottom: Spacing.six,
-  },
-  centered: {
+  content: { gap: Spacing.four, paddingBottom: Spacing.six },
+  centered: { alignItems: 'center', flex: 1, gap: Spacing.two, justifyContent: 'center' },
+  iconButton: {
     alignItems: 'center',
-    flex: 1,
-    gap: Spacing.two,
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    height: TouchTarget,
     justifyContent: 'center',
+    width: TouchTarget,
   },
-  statusCard: {
-    borderRadius: 18,
-    marginHorizontal: Spacing.four,
-    padding: Spacing.three,
-  },
-  heroCard: {
-    borderRadius: 22,
+  processing: {
+    borderRadius: Radius.large,
+    borderWidth: 1,
     gap: Spacing.three,
     marginHorizontal: Spacing.four,
     padding: Spacing.four,
   },
-  row: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: Spacing.three,
-  },
-  flex: { flex: 1, gap: Spacing.one },
-  cardTitle: { fontSize: 24, lineHeight: 30 },
-  section: {
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
-  },
-  sectionTitleRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: Spacing.two,
-    justifyContent: 'space-between',
-  },
-  topicCard: {
-    alignItems: 'flex-start',
-    borderRadius: 18,
-    flexDirection: 'row',
-    gap: Spacing.two,
-    padding: Spacing.three,
-  },
-  searchCard: {
-    borderRadius: 18,
-    gap: Spacing.three,
-    marginHorizontal: Spacing.four,
-    padding: Spacing.three,
-  },
-  input: {
-    borderRadius: 14,
-    borderWidth: 1,
-    fontSize: 16,
-    minHeight: 82,
-    padding: Spacing.three,
-    textAlignVertical: 'top',
-  },
-  resultCard: {
-    borderRadius: 16,
-    gap: Spacing.two,
-    padding: Spacing.three,
-  },
-  limitCard: {
-    borderRadius: 18,
+  row: { alignItems: 'flex-start', flexDirection: 'row', gap: Spacing.three },
+  flex: { flex: 1 },
+  stepList: { gap: Spacing.two },
+  step: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two },
+  metrics: { flexDirection: 'row', gap: Spacing.two, paddingHorizontal: Spacing.four },
+  metric: {
+    borderBottomWidth: 2,
+    flex: 1,
     gap: Spacing.one,
-    marginHorizontal: Spacing.four,
-    padding: Spacing.three,
+    paddingBottom: Spacing.two,
   },
+  recommendation: { gap: Spacing.three, marginHorizontal: Spacing.four, padding: Spacing.four },
+  quickActions: { flexDirection: 'row', gap: Spacing.two, paddingHorizontal: Spacing.four },
+  quickAction: {
+    alignItems: 'center',
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    flex: 1,
+    gap: Spacing.one,
+    justifyContent: 'center',
+    minHeight: 72,
+    padding: Spacing.two,
+  },
+  horizontal: { paddingHorizontal: Spacing.four },
+  roadmap: { gap: Spacing.one, paddingHorizontal: Spacing.four },
+  sectionHeading: { alignItems: 'flex-start', flexDirection: 'row', gap: Spacing.two, marginBottom: Spacing.two },
+  topic: {
+    alignItems: 'flex-start',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing.three,
+    minHeight: 88,
+    paddingVertical: Spacing.three,
+  },
+  error: { gap: Spacing.one, marginHorizontal: Spacing.four, padding: Spacing.three },
 });

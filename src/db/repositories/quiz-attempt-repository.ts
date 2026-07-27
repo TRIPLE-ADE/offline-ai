@@ -52,4 +52,15 @@ export class QuizAttemptRepository {
     );
     return rows.map(mapAttempt);
   }
+
+  async listRecent(limit = 10): Promise<QuizAttempt[]> {
+    const rows = await this.db.getAllAsync<QuizAttemptRow>(
+      `SELECT *
+       FROM quiz_attempts
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [limit]
+    );
+    return rows.map(mapAttempt);
+  }
 }

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,29 +15,51 @@ import {
 } from 'react-native';
 
 import { materialChatService } from '@/chat/material-chat-service';
-import { ScreenHeader } from '@/components/foundation/screen-header';
+import { SourcePreviewSheet } from '@/components/foundation/source-preview-sheet';
+import { StatusBadge } from '@/components/foundation/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
-import type { ChatMessage } from '@/db/types';
+import { Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { ChatRepository } from '@/db/repositories/chat-repository';
+import { MaterialRepository } from '@/db/repositories/material-repository';
+import type { ChatMessage, StoredCitation } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
-import { useRuntimeStore } from '@/stores/runtime-store';
+import { userFacingError } from '@/utils/user-facing-error';
+
+const suggestions = [
+  'Explain this simply',
+  'Give me an example',
+  'Summarize the key points',
+  'What should I understand first?',
+  'Compare these concepts',
+  'Quiz me on this topic',
+];
 
 export default function MaterialChatScreen() {
-  const { materialId } = useLocalSearchParams<{ materialId: string }>();
+  const { materialId, topicTitle, prompt } = useLocalSearchParams<{
+    materialId: string;
+    topicTitle?: string;
+    prompt?: string;
+  }>();
   const db = useSQLiteContext();
   const theme = useTheme();
-  const generation = useRuntimeStore((state) => state.generation);
   const scrollRef = useRef<ScrollView>(null);
   const interruptedRef = useRef(false);
+  const seededPrompt = useRef(false);
+  const [materialTitle, setMaterialTitle] = useState('This material');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedCitation, setExpandedCitation] = useState<string | null>(null);
+  const [selectedCitation, setSelectedCitation] = useState<StoredCitation | null>(null);
 
   const load = useCallback(async () => {
-    setMessages(await materialChatService.load(db, materialId));
+    const [nextMessages, material] = await Promise.all([
+      materialChatService.load(db, materialId),
+      new MaterialRepository(db).getById(materialId),
+    ]);
+    setMessages(nextMessages);
+    if (material) setMaterialTitle(material.title);
   }, [db, materialId]);
 
   useFocusEffect(
@@ -45,12 +68,16 @@ export default function MaterialChatScreen() {
     }, [load])
   );
 
-  const handleAsk = async () => {
-    const currentQuestion = question.trim();
-    if (currentQuestion.length < 3 || isGenerating) {
-      return;
+  useEffect(() => {
+    if (!seededPrompt.current && prompt) {
+      seededPrompt.current = true;
+      setQuestion(prompt);
     }
+  }, [prompt]);
 
+  const ask = async (suggested?: string) => {
+    const currentQuestion = (suggested ?? question).trim();
+    if (currentQuestion.length < 3 || isGenerating) return;
     setQuestion('');
     setError(null);
     setIsGenerating(true);
@@ -75,32 +102,21 @@ export default function MaterialChatScreen() {
       status: 'pending',
       createdAt: now,
     };
-    setMessages((current) => [
-      ...current,
-      optimisticUser,
-      optimisticAssistant,
-    ]);
+    setMessages((current) => [...current, optimisticUser, optimisticAssistant]);
 
     try {
       await materialChatService.ask(db, materialId, currentQuestion, {
         wasInterrupted: () => interruptedRef.current,
-        onToken: (content) => {
+        onToken: (content) =>
           setMessages((current) =>
             current.map((message) =>
-              message.id === optimisticAssistant.id
-                ? { ...message, content }
-                : message
+              message.id === optimisticAssistant.id ? { ...message, content } : message
             )
-          );
-        },
+          ),
       });
     } catch (caught) {
       if (!interruptedRef.current) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : 'Unable to finish this local answer.'
-        );
+        setError(userFacingError(caught, 'The offline answer could not be completed. Retry when you are ready.'));
       }
     } finally {
       setIsGenerating(false);
@@ -108,132 +124,155 @@ export default function MaterialChatScreen() {
     }
   };
 
-  const handleStop = () => {
+  const stop = () => {
     interruptedRef.current = true;
     materialChatService.stop();
+  };
+
+  const clearConversation = () => {
+    Alert.alert(
+      'Clear this conversation?',
+      'This permanently deletes every question and answer for this material. The material and study progress remain.',
+      [
+        { text: 'Keep conversation', style: 'cancel' },
+        {
+          text: 'Clear conversation',
+          style: 'destructive',
+          onPress: () => {
+            void new ChatRepository(db).clearForMaterial(materialId).then(load);
+          },
+        },
+      ]
+    );
   };
 
   return (
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={96}
+        keyboardVerticalOffset={88}
         style={styles.container}>
+        <View style={[styles.header, { borderBottomColor: theme.divider }]}>
+          <View style={styles.flex}>
+            <ThemedText type="subtitle" numberOfLines={1}>Chat with {materialTitle}</ThemedText>
+            <View style={styles.contextRow}>
+              <StatusBadge label="Ready offline" tone="offline" />
+              {topicTitle ? (
+                <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
+                  Topic: {topicTitle}
+                </ThemedText>
+              ) : null}
+            </View>
+          </View>
+          {messages.length > 0 ? (
+            <Pressable
+              accessibilityLabel="Clear conversation"
+              accessibilityRole="button"
+              onPress={clearConversation}
+              style={[styles.headerAction, { borderColor: theme.border }]}>
+              <Ionicons name="trash-outline" color={theme.textSecondary} size={20} />
+            </Pressable>
+          ) : null}
+        </View>
+
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() =>
-            scrollRef.current?.scrollToEnd({ animated: true })
-          }
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
           showsVerticalScrollIndicator={false}>
-          <ScreenHeader
-            eyebrow="Material-only assistant"
-            title="Ask this material"
-            subtitle="Each question retrieves fresh local evidence. The assistant refuses when the imported source does not support an answer."
-          />
-
           {messages.length === 0 ? (
-            <ThemedView type="backgroundElement" style={styles.emptyCard}>
-              <Ionicons name="chatbubbles-outline" color="#4A50CE" size={34} />
-              <ThemedText type="subtitle" style={styles.compactTitle}>
-                Resolve a point of confusion
-              </ThemedText>
-              <ThemedText themeColor="textSecondary">
-                Ask about a definition, distinction, example, or relationship covered
-                by this material. Answers include inspectable source excerpts.
-              </ThemedText>
-              <View style={styles.examples}>
-                <ThemedText type="smallBold">Try asking</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  “Explain the main idea in simple terms.”
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  “What is the difference between the first two concepts?”
-                </ThemedText>
+            <View style={styles.empty}>
+              <View style={[styles.emptyIcon, { backgroundColor: theme.primarySoft }]}>
+                <Ionicons name="chatbubble-ellipses-outline" color={theme.primary} size={30} />
               </View>
-            </ThemedView>
+              <ThemedText type="heading">Ask a focused question</ThemedText>
+              <ThemedText themeColor="textSecondary">
+                Soma answers only from this material and shows the passages that support the answer.
+              </ThemedText>
+              <View style={styles.suggestions}>
+                {suggestions.map((suggestion) => (
+                  <Pressable
+                    key={suggestion}
+                    accessibilityRole="button"
+                    onPress={() => void ask(topicTitle ? `${suggestion} about ${topicTitle}.` : suggestion)}
+                    style={[styles.suggestion, { borderColor: theme.border }]}>
+                    <ThemedText type="smallBold">{suggestion}</ThemedText>
+                    <Ionicons name="arrow-forward" color={theme.primary} size={17} />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           ) : null}
 
           <View style={styles.messages}>
             {messages.map((message) => {
               const isUser = message.role === 'user';
+              const unavailable =
+                message.role === 'assistant' &&
+                (message.content.includes('can’t answer that from this material') ||
+                  message.content.includes('couldn’t find enough information'));
               return (
                 <View
                   key={message.id}
-                  style={[
-                    styles.messageRow,
-                    isUser ? styles.userRow : styles.assistantRow,
-                  ]}>
+                  style={[styles.messageRow, isUser ? styles.userRow : styles.assistantRow]}>
                   <View
                     style={[
                       styles.messageBubble,
                       {
                         backgroundColor: isUser
-                          ? '#4A50CE'
-                          : theme.backgroundElement,
+                          ? theme.primary
+                          : unavailable
+                            ? theme.warningSoft
+                            : theme.surface,
+                        borderColor: isUser ? theme.primary : theme.border,
                       },
                     ]}>
-                    {message.content ? (
-                      <ThemedText
-                        style={isUser ? styles.userText : undefined}>
+                    {!message.content ? (
+                      <View
+                        accessibilityLiveRegion="polite"
+                        accessibilityLabel="Finding the most relevant passages"
+                        style={styles.typing}>
+                        <ActivityIndicator color={theme.primary} size="small" />
+                        <View style={styles.flex}>
+                          <ThemedText type="smallBold">Finding relevant passages</ThemedText>
+                          <ThemedText type="caption" themeColor="textSecondary">
+                            A local response can take a little longer.
+                          </ThemedText>
+                        </View>
+                      </View>
+                    ) : (
+                      <ThemedText selectable style={isUser ? styles.userText : undefined}>
                         {message.content}
                       </ThemedText>
-                    ) : (
-                      <View style={styles.typing}>
-                        <ActivityIndicator color="#4A50CE" size="small" />
-                        <ThemedText type="small" themeColor="textSecondary">
-                          Reading the most relevant passages…
-                        </ThemedText>
-                      </View>
                     )}
-                    {message.status === 'failed' ||
-                    message.status === 'interrupted' ? (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {message.status === 'interrupted'
-                          ? 'Stopped'
-                          : 'Generation failed'}
+                    {message.status === 'interrupted' ? (
+                      <ThemedText type="caption" themeColor="textSecondary">
+                        Response stopped. The partial answer is saved.
+                      </ThemedText>
+                    ) : null}
+                    {message.status === 'failed' ? (
+                      <ThemedText type="caption" style={{ color: theme.danger }}>
+                        The answer was interrupted. Ask again when the offline AI is ready.
                       </ThemedText>
                     ) : null}
                   </View>
-
                   {message.citations.length > 0 ? (
                     <View style={styles.citations}>
-                      {message.citations.map((citation) => (
-                        <View key={`${message.id}-${citation.chunkId}`}>
+                      <ThemedText type="caption" themeColor="textSecondary">Supporting sources</ThemedText>
+                      <View style={styles.citationRow}>
+                        {message.citations.map((citation) => (
                           <Pressable
-                            onPress={() =>
-                              setExpandedCitation((current) =>
-                                current === `${message.id}-${citation.chunkId}`
-                                  ? null
-                                  : `${message.id}-${citation.chunkId}`
-                              )
-                            }
-                            style={[
-                              styles.chip,
-                              { backgroundColor: theme.backgroundSelected },
-                            ]}>
-                            <Ionicons
-                              name="document-text-outline"
-                              color={theme.text}
-                              size={15}
-                            />
-                            <ThemedText type="smallBold">
-                              {citation.label}
-                            </ThemedText>
+                            key={`${message.id}-${citation.chunkId}`}
+                            accessibilityHint="Opens the supporting passage"
+                            accessibilityRole="button"
+                            onPress={() => setSelectedCitation(citation)}
+                            style={[styles.citation, { backgroundColor: theme.backgroundElement }]}>
+                            <Ionicons name="document-text-outline" color={theme.primary} size={15} />
+                            <ThemedText type="caption" numberOfLines={1}>{citation.label}</ThemedText>
                           </Pressable>
-                          {expandedCitation ===
-                          `${message.id}-${citation.chunkId}` ? (
-                            <ThemedView
-                              type="backgroundElement"
-                              style={styles.sourceCard}>
-                              <ThemedText type="small" themeColor="textSecondary">
-                                {citation.excerpt}
-                              </ThemedText>
-                            </ThemedView>
-                          ) : null}
-                        </View>
-                      ))}
+                        ))}
+                      </View>
                     </View>
                   ) : null}
                 </View>
@@ -242,133 +281,115 @@ export default function MaterialChatScreen() {
           </View>
 
           {error ? (
-            <ThemedView type="backgroundElement" style={styles.errorCard}>
-              <ThemedText type="smallBold">Answer unavailable</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {error} Your question remains in the conversation.
+            <View style={[styles.error, { backgroundColor: theme.dangerSoft }]}>
+              <ThemedText type="smallBold" style={{ color: theme.danger }}>Answer needs attention</ThemedText>
+              <ThemedText type="small" style={{ color: theme.danger }}>
+                {error} Your question is still saved.
               </ThemedText>
-            </ThemedView>
+            </View>
           ) : null}
         </ScrollView>
 
-        <ThemedView
-          type="backgroundElement"
-          style={[
-            styles.composer,
-            { borderTopColor: theme.backgroundSelected },
-          ]}>
+        <View style={[styles.composer, { backgroundColor: theme.surface, borderTopColor: theme.divider }]}>
           <TextInput
-            accessibilityLabel="Ask this material"
+            accessibilityLabel={`Ask ${materialTitle}`}
             editable={!isGenerating}
             multiline
             onChangeText={setQuestion}
-            onSubmitEditing={() => void handleAsk()}
-            placeholder="Ask a question grounded in this material…"
-            placeholderTextColor={theme.textSecondary}
+            placeholder={topicTitle ? `Ask about ${topicTitle}…` : 'Ask about this material…'}
+            placeholderTextColor={theme.textTertiary}
             style={[
               styles.input,
-              {
-                backgroundColor: theme.background,
-                borderColor: theme.backgroundSelected,
-                color: theme.text,
-              },
+              { backgroundColor: theme.background, borderColor: theme.border, color: theme.text },
             ]}
             value={question}
           />
-          {isGenerating ? (
-            <Pressable
-              accessibilityLabel="Stop generation"
-              onPress={handleStop}
-              style={styles.sendButton}>
-              <Ionicons name="stop" color="#FFFFFF" size={22} />
-            </Pressable>
-          ) : (
-            <Pressable
-              accessibilityLabel="Send question"
-              disabled={question.trim().length < 3}
-              onPress={() => void handleAsk()}
-              style={[
-                styles.sendButton,
-                question.trim().length < 3 && styles.disabled,
-              ]}>
-              <Ionicons name="arrow-up" color="#FFFFFF" size={22} />
-            </Pressable>
-          )}
-        </ThemedView>
-
-        {isGenerating && generation.phase === 'downloading' ? (
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.downloadStatus}>
-            Downloading Gemma · {Math.round(generation.progress * 100)}%
-          </ThemedText>
-        ) : null}
+          <Pressable
+            accessibilityLabel={isGenerating ? 'Stop response' : 'Send question'}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !isGenerating && question.trim().length < 3 }}
+            disabled={!isGenerating && question.trim().length < 3}
+            onPress={isGenerating ? stop : () => void ask()}
+            style={[
+              styles.sendButton,
+              { backgroundColor: isGenerating ? theme.danger : theme.primary },
+              !isGenerating && question.trim().length < 3 && styles.disabled,
+            ]}>
+            <Ionicons name={isGenerating ? 'stop' : 'arrow-up'} color="#FFFFFF" size={22} />
+          </Pressable>
+        </View>
       </KeyboardAvoidingView>
+      <SourcePreviewSheet
+        citation={selectedCitation}
+        materialTitle={materialTitle}
+        onClose={() => setSelectedCitation(null)}
+      />
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: {
-    flexGrow: 1,
-    gap: Spacing.three,
-    paddingBottom: Spacing.four,
-  },
-  emptyCard: {
-    borderRadius: 22,
-    gap: Spacing.three,
-    marginHorizontal: Spacing.four,
-    padding: Spacing.four,
-  },
-  compactTitle: { fontSize: 24, lineHeight: 30 },
-  examples: { gap: Spacing.one },
-  messages: {
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-  },
-  messageRow: { gap: Spacing.two, maxWidth: '92%' },
-  userRow: { alignSelf: 'flex-end' },
-  assistantRow: { alignSelf: 'flex-start' },
-  messageBubble: {
-    borderRadius: 18,
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-  },
-  userText: { color: '#FFFFFF' },
-  typing: {
+  header: {
     alignItems: 'center',
+    borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  citations: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  chip: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    borderRadius: 99,
-    flexDirection: 'row',
-    gap: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
-  sourceCard: {
-    borderRadius: 14,
-    marginTop: Spacing.one,
-    maxWidth: 360,
-    padding: Spacing.two,
-  },
-  errorCard: {
-    borderRadius: 16,
-    gap: Spacing.one,
-    marginHorizontal: Spacing.four,
+    gap: Spacing.three,
     padding: Spacing.three,
   },
+  flex: { flex: 1 },
+  contextRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.one },
+  headerAction: {
+    alignItems: 'center',
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    height: TouchTarget,
+    justifyContent: 'center',
+    width: TouchTarget,
+  },
+  content: { flexGrow: 1, gap: Spacing.four, paddingBottom: Spacing.four },
+  empty: { gap: Spacing.three, padding: Spacing.four },
+  emptyIcon: {
+    alignItems: 'center',
+    borderRadius: Radius.large,
+    height: 56,
+    justifyContent: 'center',
+    width: 56,
+  },
+  suggestions: { gap: Spacing.two },
+  suggestion: {
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: TouchTarget,
+    paddingVertical: Spacing.two,
+  },
+  messages: { gap: Spacing.three, paddingHorizontal: Spacing.three },
+  messageRow: { gap: Spacing.two, maxWidth: '94%' },
+  userRow: { alignSelf: 'flex-end', maxWidth: '82%' },
+  assistantRow: { alignSelf: 'flex-start' },
+  messageBubble: {
+    borderRadius: Radius.large,
+    borderWidth: 1,
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+  },
+  userText: { color: '#FFFFFF' },
+  typing: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two, minWidth: 250 },
+  citations: { gap: Spacing.one },
+  citationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  citation: {
+    alignItems: 'center',
+    borderRadius: Radius.small,
+    flexDirection: 'row',
+    gap: Spacing.one,
+    maxWidth: 260,
+    minHeight: 40,
+    paddingHorizontal: Spacing.two,
+  },
+  error: { gap: Spacing.one, marginHorizontal: Spacing.three, padding: Spacing.three },
   composer: {
     alignItems: 'flex-end',
     borderTopWidth: 1,
@@ -377,10 +398,12 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
   },
   input: {
-    borderRadius: 18,
+    borderRadius: Radius.large,
     borderWidth: 1,
     flex: 1,
+    fontFamily: 'DMSans_400Regular',
     fontSize: 16,
+    lineHeight: 22,
     maxHeight: 120,
     minHeight: 52,
     paddingHorizontal: Spacing.three,
@@ -389,15 +412,10 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     alignItems: 'center',
-    backgroundColor: '#4A50CE',
-    borderRadius: 25,
-    height: 50,
+    borderRadius: Radius.full,
+    height: 52,
     justifyContent: 'center',
-    width: 50,
+    width: 52,
   },
-  disabled: { opacity: 0.4 },
-  downloadStatus: {
-    paddingBottom: Spacing.two,
-    paddingHorizontal: Spacing.four,
-  },
+  disabled: { opacity: 0.38 },
 });

@@ -151,4 +151,14 @@ export class ChatRepository {
       [content, status, JSON.stringify(citations), id]
     );
   }
+
+  async clearForMaterial(materialId: string) {
+    const thread = await this.db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM chat_threads WHERE material_id = ? LIMIT 1',
+      [materialId]
+    );
+    if (thread) {
+      await this.db.runAsync('DELETE FROM chat_messages WHERE thread_id = ?', [thread.id]);
+    }
+  }
 }
