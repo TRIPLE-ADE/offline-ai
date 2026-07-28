@@ -95,7 +95,7 @@ export default function LibraryScreen() {
             {!offlineReady ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push('/setup')}
+                onPress={() => router.navigate('/setup')}
                 style={styles.setupLink}>
                 <ThemedText type="smallBold" style={{ color: theme.primary }}>
                   Finish setup
@@ -137,7 +137,7 @@ export default function LibraryScreen() {
               <PrimaryButton
                 label={current.topic.status === 'needs_review' ? 'Review topic' : 'Continue lesson'}
                 onPress={() =>
-                  router.push({
+                  router.navigate({
                     pathname: '/material/[materialId]/topic/[topicId]',
                     params: {
                       materialId: current.material.id,
@@ -152,8 +152,8 @@ export default function LibraryScreen() {
 
           {items.length === 0 && !loading ? (
             <FirstStudyPath
-              onImport={() => router.push('/import')}
-              onSetup={() => router.push('/setup')}
+              onImport={() => router.navigate('/import')}
+              onSetup={() => router.navigate('/setup')}
             />
           ) : (
             <View style={styles.librarySection}>
@@ -162,7 +162,7 @@ export default function LibraryScreen() {
                   <Pressable
                     accessibilityLabel="Import material"
                     accessibilityRole="button"
-                    onPress={() => router.push('/import')}
+                    onPress={() => router.navigate('/import')}
                     style={({ pressed }) => [
                       styles.addButton,
                       {
@@ -186,7 +186,7 @@ export default function LibraryScreen() {
                     key={material.id}
                     material={material}
                     onPress={() =>
-                      router.push({
+                      router.navigate({
                         pathname: '/material/[materialId]',
                         params: { materialId: material.id },
                       })

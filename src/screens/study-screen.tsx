@@ -130,7 +130,7 @@ export default function StudyScreen() {
     : 0;
 
   const openTopic = (item: StudyItem) =>
-    router.push({
+    router.navigate({
       pathname: "/material/[materialId]/topic/[topicId]",
       params: {
         materialId: item.material.id,
@@ -168,7 +168,7 @@ export default function StudyScreen() {
             icon="book-outline"
             onAction={() => router.replace("/library")}
             secondaryLabel="Manage offline AI"
-            onSecondary={() => router.push("/setup")}
+            onSecondary={() => router.navigate("/setup")}
             title="Your next study action will appear here"
           />
         ) : recommendation && copy ? (
@@ -183,7 +183,7 @@ export default function StudyScreen() {
                 <PrimaryButton
                   label="Chat with this material"
                   onPress={() =>
-                    router.push({
+                    router.navigate({
                       pathname: "/material/[materialId]/chat",
                       params: { materialId: recommendation.material.id },
                     })

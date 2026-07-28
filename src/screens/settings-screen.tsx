@@ -152,7 +152,7 @@ export default function SettingsScreen() {
             <StatusBadge label={ready ? 'Ready offline' : 'Setup incomplete'} tone={ready ? 'offline' : 'working'} />
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/setup')}
+              onPress={() => router.navigate('/setup')}
               style={styles.manageAction}>
               <ThemedText type="smallBold" style={{ color: theme.primary }}>Manage offline resources</ThemedText>
               <Ionicons name="arrow-forward" color={theme.primary} size={18} />

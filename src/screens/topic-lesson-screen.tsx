@@ -32,6 +32,12 @@ import { userFacingError } from "@/utils/user-facing-error";
 
 type RouteOrigin = "library" | "material" | "progress" | "study";
 
+type TopicLessonState = {
+  lesson: LessonArtifact | null;
+  loadedTopicId: string | null;
+  topic: Topic | null;
+};
+
 export default function TopicLessonScreen() {
   const { origin, topicId } = useLocalSearchParams<{
     origin?: RouteOrigin;
@@ -41,17 +47,27 @@ export default function TopicLessonScreen() {
   const router = useRouter();
   const theme = useTheme();
   const generation = useRuntimeStore((state) => state.generation);
-  const [topic, setTopic] = useState<Topic | null>(null);
-  const [lesson, setLesson] = useState<LessonArtifact | null>(null);
+  const [{ lesson, loadedTopicId, topic }, setTopicLessonState] =
+    useState<TopicLessonState>({
+      lesson: null,
+      loadedTopicId: null,
+      topic: null,
+    });
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] =
     useState<StoredCitation | null>(null);
 
   const load = useCallback(async () => {
-    const nextTopic = await new TopicRepository(db).getById(topicId);
-    setTopic(nextTopic);
-    setLesson(await lessonService.getCached(db, topicId));
+    const [nextTopic, nextLesson] = await Promise.all([
+      new TopicRepository(db).getById(topicId),
+      lessonService.getCached(db, topicId),
+    ]);
+    setTopicLessonState({
+      lesson: nextLesson,
+      loadedTopicId: topicId,
+      topic: nextTopic,
+    });
   }, [db, topicId]);
 
   useFocusEffect(
@@ -64,7 +80,11 @@ export default function TopicLessonScreen() {
     setError(null);
     setIsGenerating(true);
     try {
-      setLesson(await lessonService.generate(db, topicId));
+      const generatedLesson = await lessonService.generate(db, topicId);
+      setTopicLessonState((current) => ({
+        ...current,
+        lesson: generatedLesson,
+      }));
       await load();
     } catch (caught) {
       setError(
@@ -78,7 +98,7 @@ export default function TopicLessonScreen() {
     }
   };
 
-  if (!topic) {
+  if (loadedTopicId !== topicId || !topic) {
     return (
       <ThemedView style={styles.centered}>
         <ActivityIndicator color={theme.primary} />
@@ -240,7 +260,7 @@ export default function TopicLessonScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
-                    router.push({
+                    router.navigate({
                       pathname: "/material/[materialId]/chat",
                       params: {
                         materialId: topic.materialId,
@@ -267,7 +287,7 @@ export default function TopicLessonScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
-                    router.push({
+                    router.navigate({
                       pathname: "/material/[materialId]/chat",
                       params: {
                         materialId: topic.materialId,
@@ -314,7 +334,7 @@ export default function TopicLessonScreen() {
               <PrimaryButton
                 label="Start knowledge check"
                 onPress={() =>
-                  router.push({
+                  router.navigate({
                     pathname:
                       "/material/[materialId]/topic/[topicId]/assessment",
                     params: {
@@ -328,7 +348,7 @@ export default function TopicLessonScreen() {
               <PrimaryButton
                 label="Ask about this topic"
                 onPress={() =>
-                  router.push({
+                  router.navigate({
                     pathname: "/material/[materialId]/chat",
                     params: {
                       materialId: topic.materialId,

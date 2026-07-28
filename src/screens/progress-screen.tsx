@@ -153,7 +153,7 @@ export default function ProgressScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
-                    router.push({
+                    router.navigate({
                       pathname: "/material/[materialId]/topic/[topicId]",
                       params: {
                         materialId: active.materialId,
@@ -191,7 +191,7 @@ export default function ProgressScreen() {
                       key={material.id}
                       accessibilityRole="button"
                       onPress={() =>
-                        router.push({
+                        router.navigate({
                           pathname: "/material/[materialId]",
                           params: { materialId: material.id },
                         })

@@ -301,7 +301,7 @@ export default function MaterialScreen() {
             onSecondary={() =>
               isGeneratingRoadmap
                 ? generationRuntime.interrupt()
-                : router.push({
+                : router.navigate({
                     pathname: "/material/[materialId]/chat",
                     params: { materialId },
                   })
@@ -360,7 +360,7 @@ export default function MaterialScreen() {
                       : "Continue studying"
                   }
                   onPress={() =>
-                    router.push({
+                    router.navigate({
                       pathname: "/material/[materialId]/topic/[topicId]",
                       params: {
                         materialId,
@@ -377,7 +377,7 @@ export default function MaterialScreen() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() =>
-                  router.push({
+                  router.navigate({
                     pathname: "/material/[materialId]/chat",
                     params: { materialId },
                   })
@@ -399,7 +399,7 @@ export default function MaterialScreen() {
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push("/progress")}
+                onPress={() => router.navigate("/progress")}
                 style={[
                   styles.quickAction,
                   {
@@ -455,7 +455,7 @@ export default function MaterialScreen() {
                 <TopicCard
                   key={topic.id}
                   onPress={() =>
-                    router.push({
+                    router.navigate({
                       pathname: "/material/[materialId]/topic/[topicId]",
                       params: {
                         materialId,
