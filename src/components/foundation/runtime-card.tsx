@@ -5,7 +5,7 @@ import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ProgressBar } from '@/components/foundation/progress-bar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Radius, Spacing } from '@/constants/theme';
+import { Elevation, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { RuntimeState } from '@/stores/runtime-store';
 
@@ -44,7 +44,14 @@ export function RuntimeCard({
 
   return (
     <ThemedView
-      style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.surfaceElevated,
+          borderColor: theme.border,
+          shadowColor: theme.shadow,
+        },
+      ]}>
       <View style={styles.titleRow}>
         <View
           style={[
@@ -95,6 +102,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: Spacing.three,
     padding: Spacing.three,
+    ...Elevation.card,
   },
   titleRow: {
     alignItems: 'flex-start',

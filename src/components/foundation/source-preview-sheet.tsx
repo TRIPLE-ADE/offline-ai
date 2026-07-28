@@ -30,7 +30,11 @@ export function SourcePreviewSheet({
         <View
           style={[
             styles.sheet,
-            { backgroundColor: theme.surfaceRaised, paddingBottom: Math.max(insets.bottom, 20) },
+            {
+              backgroundColor: theme.surfaceElevated,
+              borderTopColor: theme.secondary,
+              paddingBottom: Math.max(insets.bottom, 20),
+            },
           ]}>
           <View style={[styles.handle, { backgroundColor: theme.border }]} />
           <View style={styles.header}>
@@ -73,6 +77,7 @@ const styles = StyleSheet.create({
   scrim: { flex: 1, justifyContent: 'flex-end' },
   dismiss: { flex: 1 },
   sheet: {
+    borderTopWidth: 4,
     borderTopLeftRadius: Radius.xlarge,
     borderTopRightRadius: Radius.xlarge,
     maxHeight: '76%',

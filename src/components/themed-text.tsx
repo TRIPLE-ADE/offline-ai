@@ -23,7 +23,7 @@ export function ThemedText({
   style,
   type = 'default',
   themeColor,
-  maxFontSizeMultiplier = 1.6,
+  maxFontSizeMultiplier,
   ...rest
 }: ThemedTextProps) {
   const theme = useTheme();
@@ -32,7 +32,7 @@ export function ThemedText({
     <Text
       maxFontSizeMultiplier={maxFontSizeMultiplier}
       style={[
-        { color: theme[themeColor ?? 'text'] },
+        { color: theme[themeColor ?? 'textPrimary'] },
         styles[type],
         type === 'linkPrimary' && { color: theme.primary },
         style,

@@ -38,7 +38,14 @@ export function StatePanel({
         : theme.primarySoft;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.surfaceElevated,
+          borderColor: theme.border,
+        },
+      ]}>
       <View style={[styles.icon, { backgroundColor: soft }]}>
         <Ionicons name={icon} color={accent} size={28} />
       </View>
@@ -60,18 +67,22 @@ export function StatePanel({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: Radius.xlarge,
+    borderCurve: 'continuous',
+    borderRadius: Radius.large,
     borderWidth: 1,
     gap: Spacing.three,
     padding: Spacing.four,
   },
   icon: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: Radius.medium,
     height: 52,
     justifyContent: 'center',
     width: 52,
   },
-  copy: { gap: Spacing.two },
-  title: { fontSize: 24, lineHeight: 30 },
+  copy: {
+    gap: Spacing.two,
+  },
+  title: { fontSize: 22, lineHeight: 28 },
 });

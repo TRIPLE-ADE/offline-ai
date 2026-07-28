@@ -17,7 +17,7 @@ export function ProgressBar({ value, color, accessibilityLabel = 'Progress' }: P
       accessibilityLabel={`${accessibilityLabel}, ${percentage}%`}
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: percentage }}
-      style={[styles.track, { backgroundColor: theme.backgroundSelected }]}>
+      style={[styles.track, { backgroundColor: theme.primarySoft }]}>
       <View
         style={[
           styles.fill,

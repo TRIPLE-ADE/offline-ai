@@ -23,6 +23,7 @@ export function ScreenHeader({
   const theme = useTheme();
   return (
     <View style={[styles.container, compact && styles.compact]}>
+      <View style={[styles.brandRule, { backgroundColor: theme.secondary }]} />
       <View style={styles.headingRow}>
         <View style={styles.heading}>
           {eyebrow ? (
@@ -48,9 +49,9 @@ export function ScreenHeader({
 const styles = StyleSheet.create({
   container: {
     gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
     paddingTop: Spacing.four,
   },
+  brandRule: { borderRadius: 2, height: 4, width: 44 },
   compact: { paddingTop: Spacing.three },
   headingRow: {
     alignItems: 'flex-start',
@@ -61,7 +62,7 @@ const styles = StyleSheet.create({
   heading: { flex: 1, gap: Spacing.two },
   eyebrowRow: {
     alignSelf: 'flex-start',
-    borderRadius: 6,
+    borderRadius: 5,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
   },

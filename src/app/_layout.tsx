@@ -1,50 +1,60 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
-import { useFonts } from 'expo-font';
-import * as SplashScreen from 'expo-splash-screen';
-import { SQLiteProvider } from 'expo-sqlite';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { KeyboardProvider } from 'react-native-keyboard-controller';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Stack } from "expo-router";
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider,
+} from "expo-router/react-navigation";
+import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
+import { SQLiteProvider } from "expo-sqlite";
+import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
+import { useColorScheme } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { initializeExecutorch } from '@/ai/initialize-executorch';
-import { Colors, Fonts } from '@/constants/theme';
-import { DATABASE_NAME, migrateDatabase } from '@/db/database';
+import { initializeExecutorch } from "@/ai/initialize-executorch";
+import { Colors, Fonts } from "@/constants/theme";
+import { DATABASE_NAME, migrateDatabase } from "@/db/database";
+import { useTheme } from "@/hooks/use-theme";
 
 void SplashScreen.preventAutoHideAsync();
 initializeExecutorch();
 
 function AppNavigator() {
+  const theme = useTheme();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+
   return (
-    <Stack
-      screenOptions={{
-        headerBackButtonDisplayMode: 'minimal',
-        headerShadowVisible: false,
-      }}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="setup" options={{ title: 'Offline model setup' }} />
-      <Stack.Screen name="material/new" options={{ title: 'Import material' }} />
-      <Stack.Screen name="material/[materialId]/index" options={{ title: 'Material' }} />
-      <Stack.Screen name="material/[materialId]/chat" options={{ title: 'Chat with material' }} />
-      <Stack.Screen name="topic/[topicId]/index" options={{ title: 'Study topic' }} />
-      <Stack.Screen name="topic/[topicId]/quiz" options={{ headerShown: false }} />
-      <Stack.Screen name="progress" options={{ headerShown: false }} />
-      <Stack.Screen name="settings" options={{ headerShown: false }} />
-    </Stack>
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
+      <Stack
+        screenOptions={{
+          contentStyle: { backgroundColor: theme.background },
+          headerBackButtonDisplayMode: "minimal",
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: theme.background },
+          headerTintColor: theme.textPrimary,
+          headerTitleStyle: { fontFamily: Fonts.semibold },
+        }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+    </>
   );
 }
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts({
-    [Fonts.regular]: require('@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf'),
-    [Fonts.medium]: require('@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf'),
-    [Fonts.semibold]: require('@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf'),
-    [Fonts.bold]: require('@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf'),
+    [Fonts.regular]: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
+    [Fonts.medium]: require("@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf"),
+    [Fonts.semibold]: require("@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf"),
+    [Fonts.bold]: require("@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"),
   });
-  const isDark = colorScheme === 'dark';
+  const isDark = colorScheme === "dark";
   const palette = isDark ? Colors.dark : Colors.light;
   const navigationTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),
@@ -73,9 +83,12 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <KeyboardProvider>
           <ThemeProvider value={navigationTheme}>
-            <SQLiteProvider databaseName={DATABASE_NAME} onInit={migrateDatabase}>
+            <SQLiteProvider
+              databaseName={DATABASE_NAME}
+              onInit={migrateDatabase}
+            >
               <AppNavigator />
-              <StatusBar style={isDark ? 'light' : 'dark'} />
+              <StatusBar style={isDark ? "light" : "dark"} />
             </SQLiteProvider>
           </ThemeProvider>
         </KeyboardProvider>

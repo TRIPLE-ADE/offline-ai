@@ -45,11 +45,11 @@ function injectHeaderIsolation(podfile) {
   let next = podfile;
 
   if (!next.includes(HELPER_MARKER)) {
-    const targetAnchor = "target 'OfflineStudyCoach' do";
-    const targetIndex = next.indexOf(targetAnchor);
+    const targetMatch = next.match(/^target\s+['"][^'"]+['"]\s+do\s*$/m);
+    const targetIndex = targetMatch?.index ?? -1;
 
     if (targetIndex === -1) {
-      throw new Error(`Unable to locate ${targetAnchor} in the generated Podfile.`);
+      throw new Error('Unable to locate the application target in the generated Podfile.');
     }
 
     next = `${next.slice(0, targetIndex)}${RUBY_HELPER}\n${next.slice(targetIndex)}`;
