@@ -1,9 +1,8 @@
 import { StyleSheet, View } from 'react-native';
 
-import { SomaMark } from '@/components/brand/soma-mark';
+import { LearnGuideMark } from '@/components/brand/learn-guide-mark';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
 
 export function BrandContext({
   message,
@@ -12,15 +11,10 @@ export function BrandContext({
   message: string;
   compact?: boolean;
 }) {
-  const theme = useTheme();
-
   return (
     <View style={styles.row}>
-      <SomaMark size={compact ? 32 : 40} />
+      <LearnGuideMark size={compact ? 32 : 40} showName />
       <View style={styles.copy}>
-        <ThemedText type="caption" style={{ color: theme.primary }}>
-          SOMA OFFLINE
-        </ThemedText>
         <ThemedText
           type={compact ? 'small' : 'default'}
           themeColor="textSecondary">

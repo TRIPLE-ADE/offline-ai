@@ -6,6 +6,7 @@ import { CitationControl } from '@/components/foundation/citation-control';
 import { MarkdownContent } from '@/components/foundation/markdown-content';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
+import { Brand } from '@/constants/brand';
 import type { ChatMessage as StoredChatMessage, StoredCitation } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -41,8 +42,8 @@ export const ChatMessage = memo(function ChatMessage({
         <View style={[styles.avatar, { backgroundColor: theme.primarySoft }]}>
           <Ionicons name="book-outline" color={theme.primary} size={16} />
         </View>
-        <ThemedText type="smallBold">Soma</ThemedText>
-        <View style={[styles.offlineDot, { backgroundColor: theme.secondary }]} />
+        <ThemedText type="smallBold">{Brand.name}</ThemedText>
+        <View style={[styles.offlineDot, { backgroundColor: theme.success }]} />
         <ThemedText type="caption" themeColor="textMuted">
           On device
         </ThemedText>
@@ -95,7 +96,7 @@ export const ChatMessage = memo(function ChatMessage({
         {message.citations.length > 0 ? (
           <View style={[styles.citations, { borderTopColor: theme.border }]}>
             <View style={styles.sourcesHeading}>
-              <Ionicons name="shield-checkmark-outline" color={theme.secondary} size={15} />
+              <Ionicons name="shield-checkmark-outline" color={theme.primary} size={15} />
               <ThemedText type="caption" themeColor="textSecondary">
                 Sources used
               </ThemedText>

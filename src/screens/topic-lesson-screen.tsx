@@ -18,6 +18,7 @@ import {
 import { generationRuntime } from "@/ai/generation-runtime";
 import { CitationControl } from "@/components/foundation/citation-control";
 import { PrimaryButton } from "@/components/foundation/primary-button";
+import { StatePanel } from "@/components/foundation/state-panel";
 import { SourcePreviewSheet } from "@/components/foundation/source-preview-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -25,12 +26,14 @@ import { Radius, Spacing, TouchTarget } from "@/constants/theme";
 import { TopicRepository } from "@/db/repositories/topic-repository";
 import type { StoredCitation, Topic } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
+import { useLearningFeatureAccess } from "@/hooks/use-learning-feature-access";
 import { lessonService } from "@/learning/lesson-service";
 import type { LessonArtifact } from "@/learning/schemas";
+import { useAppOverlayStore } from "@/stores/app-overlay-store";
 import { useRuntimeStore } from "@/stores/runtime-store";
 import { userFacingError } from "@/utils/user-facing-error";
 
-type RouteOrigin = "library" | "material" | "progress" | "study";
+type RouteOrigin = "home" | "material" | "progress" | "study";
 
 type TopicLessonState = {
   lesson: LessonArtifact | null;
@@ -46,6 +49,10 @@ export default function TopicLessonScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
+  const openImportMaterial = useAppOverlayStore(
+    (state) => state.openImportMaterial,
+  );
+  const { ensureAccess } = useLearningFeatureAccess();
   const generation = useRuntimeStore((state) => state.generation);
   const [{ lesson, loadedTopicId, topic }, setTopicLessonState] =
     useState<TopicLessonState>({
@@ -77,6 +84,9 @@ export default function TopicLessonScreen() {
   );
 
   const handleGenerate = async () => {
+    if (!ensureAccess({ hasMaterial: Boolean(topic) })) {
+      return;
+    }
     setError(null);
     setIsGenerating(true);
     try {
@@ -98,11 +108,27 @@ export default function TopicLessonScreen() {
     }
   };
 
-  if (loadedTopicId !== topicId || !topic) {
+  if (loadedTopicId !== topicId) {
     return (
       <ThemedView style={styles.centered}>
         <ActivityIndicator color={theme.primary} />
         <ThemedText themeColor="textSecondary">Loading topic…</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (!topic) {
+    return (
+      <ThemedView style={styles.missingMaterial}>
+        <StatePanel
+          actionLabel="Import material"
+          body="Lessons need a PDF or TXT source so every explanation can stay grounded."
+          icon="document-text-outline"
+          onAction={openImportMaterial}
+          secondaryLabel="Go Home"
+          onSecondary={() => router.replace("/home")}
+          title="Import a file to create lessons"
+        />
       </ThemedView>
     );
   }
@@ -134,7 +160,7 @@ export default function TopicLessonScreen() {
               Prepare this lesson
             </ThemedText>
             <ThemedText themeColor="textSecondary">
-              Soma will read the relevant passages and create a focused
+              LearnGuide will read the relevant passages and create a focused
               explanation with sources you can inspect.
             </ThemedText>
             {error ? (
@@ -389,6 +415,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.two,
     justifyContent: "center",
+  },
+  missingMaterial: {
+    flex: 1,
+    justifyContent: "center",
+    padding: Spacing.four,
   },
   generateCard: {
     borderRadius: Radius.large,

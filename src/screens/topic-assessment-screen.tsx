@@ -4,7 +4,6 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import { AssessmentOption } from '@/components/foundation/assessment-option';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ProgressBar } from '@/components/foundation/progress-bar';
 import { ResultsSummary } from '@/components/foundation/results-summary';
+import { StatePanel } from '@/components/foundation/state-panel';
 import { SourcePreviewSheet } from '@/components/foundation/source-preview-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,15 +24,20 @@ import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TopicRepository } from '@/db/repositories/topic-repository';
 import type { StoredCitation, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
+import { useLearningFeatureAccess } from '@/hooks/use-learning-feature-access';
 import type { NextRecommendation } from '@/learning/assessment-policy';
 import type { QuizArtifact } from '@/learning/schemas';
 import { quizService } from '@/learning/quiz-service';
+import {
+  showActionSheet,
+  useAppOverlayStore,
+} from '@/stores/app-overlay-store';
 import { useRuntimeStore } from '@/stores/runtime-store';
 import { userFacingError } from '@/utils/user-facing-error';
 
 type Result = { score: number; recommendation: NextRecommendation };
 
-type RouteOrigin = 'library' | 'material' | 'progress' | 'study';
+type RouteOrigin = 'home' | 'material' | 'progress' | 'study';
 
 export default function TopicQuizScreen() {
   const { origin, topicId } = useLocalSearchParams<{
@@ -42,8 +47,11 @@ export default function TopicQuizScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
+  const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
+  const { ensureAccess } = useLearningFeatureAccess();
   const generation = useRuntimeStore((state) => state.generation);
   const [topic, setTopic] = useState<Topic | null>(null);
+  const [loadedTopicId, setLoadedTopicId] = useState<string | null>(null);
   const [quiz, setQuiz] = useState<QuizArtifact | null>(null);
   const [answers, setAnswers] = useState<number[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -57,6 +65,7 @@ export default function TopicQuizScreen() {
     const nextTopic = await new TopicRepository(db).getById(topicId);
     const cached = await quizService.getCached(db, topicId);
     setTopic(nextTopic);
+    setLoadedTopicId(topicId);
     setQuiz(cached);
     if (cached) {
       setAnswers((value) =>
@@ -68,6 +77,9 @@ export default function TopicQuizScreen() {
   useFocusEffect(useCallback(() => void load(), [load]));
 
   const generate = async () => {
+    if (!ensureAccess({ hasMaterial: Boolean(topic) })) {
+      return;
+    }
     setError(null);
     setResult(null);
     setCurrentIndex(0);
@@ -106,14 +118,14 @@ export default function TopicQuizScreen() {
   };
 
   const confirmSubmit = () =>
-    Alert.alert(
-      'Submit your answers?',
-      'You can review every answer and supporting source after submission.',
-      [
-        { text: 'Keep reviewing', style: 'cancel' },
-        { text: 'Submit answers', onPress: () => void submit() },
-      ]
-    );
+    showActionSheet({
+      actionLabel: 'Submit answers',
+      cancelLabel: 'Keep reviewing',
+      description:
+        'You can review every answer and its supporting source after submission.',
+      onAction: () => void submit(),
+      title: 'Submit your answers?',
+    });
 
   const exit = () => {
     const hasAnswers = answers.some((answer) => answer >= 0) && !result;
@@ -121,14 +133,14 @@ export default function TopicQuizScreen() {
       router.back();
       return;
     }
-    Alert.alert(
-      'Leave this knowledge check?',
-      'Your selected answers are kept while this app remains open.',
-      [
-        { text: 'Keep answering', style: 'cancel' },
-        { text: 'Leave check', style: 'destructive', onPress: () => router.back() },
-      ]
-    );
+    showActionSheet({
+      actionLabel: 'Leave check',
+      cancelLabel: 'Keep answering',
+      description: 'Your selected answers are kept while this app remains open.',
+      destructive: true,
+      onAction: () => router.back(),
+      title: 'Leave this knowledge check?',
+    });
   };
 
   const continueAfterAssessment = () => {
@@ -147,11 +159,27 @@ export default function TopicQuizScreen() {
     });
   };
 
-  if (!topic) {
+  if (loadedTopicId !== topicId) {
     return (
       <ThemedView style={styles.centered}>
         <ActivityIndicator color={theme.primary} />
         <ThemedText themeColor="textSecondary">Opening knowledge check…</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (!topic) {
+    return (
+      <ThemedView style={styles.missingMaterial}>
+        <StatePanel
+          actionLabel="Import material"
+          body="Knowledge checks need a PDF or TXT source so every question and answer can be verified."
+          icon="document-text-outline"
+          onAction={openImportMaterial}
+          secondaryLabel="Go Home"
+          onSecondary={() => router.replace('/home')}
+          title="Import a file to create a quiz"
+        />
       </ThemedView>
     );
   }
@@ -188,7 +216,7 @@ export default function TopicQuizScreen() {
             </View>
             <ThemedText type="heading">Check what you understand</ThemedText>
             <ThemedText themeColor="textSecondary">
-              Soma will create five questions from the passages used for this topic. Correct answers stay hidden until you submit.
+              LearnGuide will create five questions from the passages used for this topic. Correct answers stay hidden until you submit.
             </ThemedText>
             {error ? (
               <ThemedText type="small" style={{ color: theme.danger }}>{error}</ThemedText>
@@ -231,12 +259,12 @@ export default function TopicQuizScreen() {
               style={[
                 styles.recommendation,
                 {
-                  backgroundColor: theme.surfaceTint,
-                  borderColor: theme.primarySoft,
-                  borderLeftColor: theme.secondary,
+                  backgroundColor: theme.milestoneSoft,
+                  borderColor: theme.milestone,
+                  borderLeftColor: theme.milestone,
                 },
               ]}>
-              <ThemedText type="caption" style={{ color: theme.primary }}>RECOMMENDED NEXT</ThemedText>
+              <ThemedText type="caption" style={{ color: theme.warning }}>RECOMMENDED NEXT</ThemedText>
               <ThemedText type="heading">{result.recommendation.title}</ThemedText>
               <ThemedText themeColor="textSecondary">{result.recommendation.reason}</ThemedText>
               <PrimaryButton
@@ -359,6 +387,11 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
   centered: { alignItems: 'center', flex: 1, gap: Spacing.two, justifyContent: 'center' },
+  missingMaterial: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: Spacing.four,
+  },
   header: {
     alignItems: 'center',
     borderBottomWidth: 1,

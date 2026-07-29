@@ -1,4 +1,4 @@
-# Soma Offline Repository Guide
+# LearnGuide Repository Guide
 
 ## Required Expo reference
 
@@ -11,7 +11,7 @@ Do not rely on older Expo conventions.
 
 ## Product
 
-Soma Offline is a private, local-first study coach. A learner imports a TXT or
+LearnGuide is a private, local-first study coach. A learner imports a TXT or
 text-based PDF, and the app processes it on-device into:
 
 - source passages and embeddings;
@@ -24,8 +24,25 @@ text-based PDF, and the app processes it on-device into:
 The core promise is: import material, understand it, test yourself, and know
 what to study next without an internet connection.
 
+Brand language:
+
+- App name: LearnGuide
+- Tagline: Your offline study guide.
+- Store title: LearnGuide: Study Offline
+- Product description: Learn from your own materials, privately and offline.
+
 The app is a guided study product, not a general chatbot. Chat always belongs
 to a material and may additionally be scoped to a topic.
+
+Onboarding completion, offline-model installation, and material import are
+independent states. Learners may finish onboarding and enter Home without a
+model or material. Model-dependent actions should offer the optional download,
+and source-dependent actions should guide the learner to import a PDF or TXT.
+After onboarding, model download and material import are presented through
+native `@expo/ui` bottom sheets rather than sending the learner back through
+setup routes. Use native bottom sheets for confirmations and actionable prompts.
+Use Sonner Native toasts only for passive success, error, warning, and
+informational messages; do not introduce new React Native `Alert` flows.
 
 ## Product rules
 
@@ -60,7 +77,7 @@ multi-material courses, and calendar planning.
   selectable-text PDF extraction.
 - This app requires a development build and does not run in Expo Go.
 
-Primary navigation is Library, Study, Progress, and Settings. Setup is outside
+Primary navigation is Home, Study, Progress, and Settings. Setup is outside
 the tabs. Material, topic, assessment, and material-chat routes are nested
 under their owning tab.
 

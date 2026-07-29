@@ -84,10 +84,10 @@ export default function ProgressScreen() {
 
         {!loading && allTopics.length === 0 ? (
           <StatePanel
-            actionLabel="Go to library"
+            actionLabel="Go home"
             body="Progress appears after you prepare a material and start its first topic."
             icon="stats-chart-outline"
-            onAction={() => router.replace("/library")}
+            onAction={() => router.replace("/home")}
             title="Your learning progress will appear here"
           />
         ) : (
@@ -106,8 +106,8 @@ export default function ProgressScreen() {
                   index === 0
                     ? theme.primary
                     : index === 1
-                      ? theme.secondary
-                      : theme.accent;
+                      ? theme.success
+                      : theme.milestone;
                 return (
                   <View
                     key={label as string}
@@ -135,13 +135,13 @@ export default function ProgressScreen() {
                 style={[
                   styles.next,
                   {
-                    backgroundColor: theme.surfaceTint,
-                    borderColor: theme.primarySoft,
-                    borderLeftColor: theme.secondary,
+                    backgroundColor: theme.milestoneSoft,
+                    borderColor: theme.milestone,
+                    borderLeftColor: theme.milestone,
                   },
                 ]}
               >
-                <ThemedText type="caption" style={{ color: theme.primary }}>
+                <ThemedText type="caption" style={{ color: theme.warning }}>
                   RECOMMENDED NEXT
                 </ThemedText>
                 <ThemedText type="heading">{active.title}</ThemedText>

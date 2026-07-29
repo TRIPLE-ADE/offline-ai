@@ -1,7 +1,7 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 
-import { Fonts } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Fonts } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 
 export default function TabsLayout() {
   const theme = useTheme();
@@ -11,43 +11,55 @@ export default function TabsLayout() {
       backgroundColor={theme.surfaceElevated}
       backBehavior="history"
       disableTransparentOnScrollEdge
-      iconColor={{ default: theme.textSecondary, selected: theme.primary }}
+      iconColor={{
+        default: theme.textSecondary,
+        selected: theme.primary,
+      }}
       indicatorColor={theme.surfaceSelected}
       labelVisibilityMode="labeled"
       labelStyle={{
-        default: { color: theme.textSecondary, fontFamily: Fonts.medium, fontSize: 12 },
-        selected: { color: theme.primary, fontFamily: Fonts.semibold, fontSize: 12 },
+        default: {
+          color: theme.textSecondary,
+          fontFamily: Fonts.medium,
+          fontSize: 12,
+        },
+        selected: {
+          color: theme.primary,
+          fontFamily: Fonts.semibold,
+          fontSize: 12,
+        },
       }}
       rippleColor={theme.surfaceSelected}
       minimizeBehavior="onScrollDown"
       shadowColor={theme.shadow}
       tabBarRespectsIMEInsets
-      tintColor={theme.primary}>
-      <NativeTabs.Trigger name="library" accessibilityLabel="Library">
+      tintColor={theme.primary}
+    >
+      <NativeTabs.Trigger name="home" accessibilityLabel="Home">
         <NativeTabs.Trigger.Icon
-          md="library_books"
-          sf={{ default: 'books.vertical', selected: 'books.vertical.fill' }}
+          md={{ default: "home", selected: "home" }}
+          sf={{ default: "house", selected: "house.fill" }}
         />
-        <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="study" accessibilityLabel="Study">
         <NativeTabs.Trigger.Icon
           md="school"
-          sf={{ default: 'book.pages', selected: 'book.pages.fill' }}
+          sf={{ default: "book.pages", selected: "book.pages.fill" }}
         />
         <NativeTabs.Trigger.Label>Study</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="progress" accessibilityLabel="Progress">
         <NativeTabs.Trigger.Icon
           md="monitoring"
-          sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }}
+          sf={{ default: "chart.bar", selected: "chart.bar.fill" }}
         />
         <NativeTabs.Trigger.Label>Progress</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="settings" accessibilityLabel="Settings">
         <NativeTabs.Trigger.Icon
-          md={{ default: 'settings', selected: 'settings' }}
-          sf={{ default: 'gearshape', selected: 'gearshape.fill' }}
+          md={{ default: "settings", selected: "settings" }}
+          sf={{ default: "gearshape", selected: "gearshape.fill" }}
         />
         <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>

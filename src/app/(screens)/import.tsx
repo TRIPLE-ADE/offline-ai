@@ -1,12 +1,24 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
+import { useEffect } from 'react';
 
-import ImportMaterialScreen from '@/screens/import-material-screen';
+import { ThemedView } from '@/components/themed-view';
+import { useAppOverlayStore } from '@/stores/app-overlay-store';
 
 export default function ImportMaterialRoute() {
+  const router = useRouter();
+  const openImportMaterial = useAppOverlayStore(
+    (state) => state.openImportMaterial
+  );
+
+  useEffect(() => {
+    openImportMaterial();
+    router.replace('/home');
+  }, [openImportMaterial, router]);
+
   return (
     <>
-      <Stack.Screen options={{ title: 'Import material' }} />
-      <ImportMaterialScreen />
+      <Stack.Screen options={{ headerShown: false, title: 'Import material' }} />
+      <ThemedView style={{ flex: 1 }} />
     </>
   );
 }

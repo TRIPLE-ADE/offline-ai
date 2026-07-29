@@ -1,6 +1,7 @@
 import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
 import { models } from 'react-native-executorch';
 
+import { reconcileModelInstallationState } from '@/ai/model-installation-state';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
 type ResourceGroups = {
@@ -50,7 +51,11 @@ export async function inspectOfflineResources() {
     store.setGeneration({ phase: 'downloaded', progress: 1, error: null });
   }
 
-  return { embeddingInstalled, generationInstalled };
+  const installation = reconcileModelInstallationState(
+    embeddingInstalled && generationInstalled
+  );
+
+  return { embeddingInstalled, generationInstalled, installation };
 }
 
 export async function getOfflineResourceSizes() {

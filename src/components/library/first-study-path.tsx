@@ -5,6 +5,7 @@ import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { HOME_EMPTY_STATE_COPY } from '@/onboarding/first-run-policy';
 
 const steps = [
   {
@@ -15,21 +16,23 @@ const steps = [
   {
     icon: 'map-outline' as const,
     title: 'Get a clear roadmap',
-    detail: 'Soma organizes the source into a practical topic order.',
+    detail: 'LearnGuide organizes the source into a practical topic order.',
   },
   {
-    icon: 'sparkles-outline' as const,
+    icon: 'checkmark-circle-outline' as const,
     title: 'Learn, ask, and check',
     detail: 'Study a grounded lesson, chat with the material, then test yourself.',
   },
 ];
 
 export function FirstStudyPath({
+  downloadAiLabel = HOME_EMPTY_STATE_COPY.secondaryAction,
   onImport,
-  onSetup,
+  onDownloadAi,
 }: {
+  downloadAiLabel?: string;
   onImport: () => void;
-  onSetup: () => void;
+  onDownloadAi?: () => void;
 }) {
   const theme = useTheme();
 
@@ -47,10 +50,15 @@ export function FirstStudyPath({
           <Ionicons name="book-outline" color={theme.primary} size={28} />
         </View>
         <View style={styles.flex}>
-          <ThemedText type="heading">Create your first study path</ThemedText>
+          <ThemedText type="heading">{HOME_EMPTY_STATE_COPY.title}</ThemedText>
           <ThemedText themeColor="textSecondary">
-            One source becomes a guided learning flow that stays private on this device.
+            {HOME_EMPTY_STATE_COPY.body}
           </ThemedText>
+          {!onDownloadAi ? null : (
+            <ThemedText type="small" themeColor="textSecondary">
+              {HOME_EMPTY_STATE_COPY.optionalModel}
+            </ThemedText>
+          )}
         </View>
       </View>
 
@@ -89,19 +97,22 @@ export function FirstStudyPath({
       </View>
 
       <PrimaryButton
-        label="Import your first material"
+        label={HOME_EMPTY_STATE_COPY.primaryAction}
         leading={<Ionicons name="add" color={theme.textOnPrimary} size={20} />}
         onPress={onImport}
       />
-      <Pressable
-        accessibilityRole="button"
-        onPress={onSetup}
-        style={({ pressed }) => [styles.setupAction, pressed && styles.pressed]}>
-        <Ionicons name="hardware-chip-outline" color={theme.primary} size={19} />
-        <ThemedText type="smallBold" style={{ color: theme.primary }}>
-          Manage offline AI setup
-        </ThemedText>
-      </Pressable>
+      {onDownloadAi ? (
+        <Pressable
+          accessibilityLabel={downloadAiLabel}
+          accessibilityRole="button"
+          onPress={onDownloadAi}
+          style={({ pressed }) => [styles.setupAction, pressed && styles.pressed]}>
+          <Ionicons name="download-outline" color={theme.primary} size={19} />
+          <ThemedText type="smallBold" style={{ color: theme.primary }}>
+            {downloadAiLabel}
+          </ThemedText>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

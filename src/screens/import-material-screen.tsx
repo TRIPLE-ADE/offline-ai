@@ -2,7 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { PrimaryButton } from "@/components/foundation/primary-button";
@@ -15,6 +21,7 @@ import { MaterialRepository } from "@/db/repositories/material-repository";
 import type { CreateMaterialInput } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
 import { importMaterial } from "@/materials/import-material";
+import { toast } from "@/utils/app-toast";
 
 function formatSize(bytes: number | null) {
   if (bytes === null) return "Size unavailable";
@@ -22,9 +29,18 @@ function formatSize(bytes: number | null) {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
 
-export default function ImportMaterialScreen() {
+type ImportMaterialContentProps = {
+  onClose?: () => void;
+  onImported: (materialId: string) => void;
+  presentation?: "screen" | "sheet";
+};
+
+export function ImportMaterialContent({
+  onClose,
+  onImported,
+  presentation = "screen",
+}: ImportMaterialContentProps) {
   const db = useSQLiteContext();
-  const router = useRouter();
   const theme = useTheme();
   const [draft, setDraft] = useState<CreateMaterialInput | null>(null);
   const [choosing, setChoosing] = useState(false);
@@ -38,11 +54,12 @@ export default function ImportMaterialScreen() {
       const selected = await importMaterial();
       if (selected) setDraft(selected);
     } catch (caught) {
-      setError(
+      const message =
         caught instanceof Error
           ? caught.message
-          : "This file could not be imported.",
-      );
+          : "This file could not be imported.";
+      setError(message);
+      toast.error("Could not open this file", { description: message });
     } finally {
       setChoosing(false);
     }
@@ -54,39 +71,89 @@ export default function ImportMaterialScreen() {
     setError(null);
     try {
       const material = await new MaterialRepository(db).create(draft);
-      router.replace({
-        pathname: "/material/[materialId]",
-        params: { materialId: material.id },
+      toast.success("Material imported", {
+        description: "Your private copy is ready to prepare.",
       });
+      onImported(material.id);
     } catch (caught) {
-      setError(
+      const message =
         caught instanceof Error
           ? caught.message
-          : "The material could not be saved.",
-      );
+          : "The material could not be saved.";
+      setError(message);
+      toast.error("Material not saved", { description: message });
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={["bottom", "left", "right"]}>
+    <ThemedView
+      style={[
+        styles.container,
+        presentation === "sheet" && {
+          backgroundColor: theme.surfaceElevated,
+        },
+      ]}
+    >
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={["bottom", "left", "right"]}
+      >
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            presentation === "sheet" && styles.sheetContent,
+          ]}
           showsVerticalScrollIndicator={false}
         >
-          <ScreenHeader
-            eyebrow={draft ? "Confirm material" : "Private import"}
-            title={
-              draft ? "Is this the right file?" : "Import learning material"
-            }
-            subtitle={
-              draft
-                ? "Check the details before Soma prepares this material for offline study."
-                : "Choose a TXT file or a PDF with selectable text. The file never leaves this device."
-            }
-          />
+          {presentation === "sheet" ? (
+            <View style={styles.sheetHeading}>
+              <View style={styles.flex}>
+                <ThemedText type="caption" style={{ color: theme.primary }}>
+                  PRIVATE IMPORT
+                </ThemedText>
+                <ThemedText type="title">
+                  {draft ? "Confirm material" : "Import material"}
+                </ThemedText>
+              </View>
+              <Pressable
+                accessibilityLabel="Close import material"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  {
+                    backgroundColor: pressed
+                      ? theme.surfaceSelected
+                      : theme.backgroundElement,
+                  },
+                ]}
+              >
+                <Ionicons name="close" color={theme.textPrimary} size={22} />
+              </Pressable>
+            </View>
+          ) : null}
+          {presentation === "screen" ? (
+            <ScreenHeader
+              eyebrow={draft ? "Confirm material" : "Private import"}
+              title={
+                draft ? "Is this the right file?" : "Import learning material"
+              }
+              subtitle={
+                draft
+                  ? "Check the details before LearnGuide prepares this material for offline study."
+                  : "Choose a TXT file or a PDF with selectable text. The file never leaves this device."
+              }
+            />
+          ) : (
+            <ThemedText themeColor="textSecondary">
+              {draft
+                ? "Check the details before LearnGuide prepares this material for offline study."
+                : "Choose a TXT file or selectable-text PDF. Your file stays on this device."}
+            </ThemedText>
+          )}
 
           {!draft ? (
             <StatePanel
@@ -140,7 +207,7 @@ export default function ImportMaterialScreen() {
                   size={20}
                 />
                 <ThemedText type="small" style={styles.flex}>
-                  A private copy is stored inside Soma. The original file is not
+                  A private copy is stored inside LearnGuide. The original file is not
                   changed.
                 </ThemedText>
               </View>
@@ -199,6 +266,21 @@ export default function ImportMaterialScreen() {
   );
 }
 
+export default function ImportMaterialScreen() {
+  const router = useRouter();
+
+  return (
+    <ImportMaterialContent
+      onImported={(materialId) =>
+        router.replace({
+          pathname: "/material/[materialId]",
+          params: { materialId },
+        })
+      }
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
@@ -207,6 +289,21 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
     paddingBottom: Spacing.four,
     paddingHorizontal: Spacing.four,
+  },
+  sheetContent: {
+    paddingTop: Spacing.three,
+  },
+  sheetHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: Spacing.three,
+  },
+  closeButton: {
+    alignItems: "center",
+    borderRadius: Radius.full,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
   },
   fileCard: {
     borderRadius: Radius.large,

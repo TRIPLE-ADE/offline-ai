@@ -16,7 +16,7 @@ export function userFacingError(error: unknown, fallback: string) {
     normalized.includes('allocation') ||
     normalized.includes('out of memory')
   ) {
-    return 'Your device is low on available memory. Close other apps, return to Soma, and retry.';
+    return 'Your device is low on available memory. Close other apps, return to LearnGuide, and retry.';
   }
   if (
     normalized.includes('gemma') ||

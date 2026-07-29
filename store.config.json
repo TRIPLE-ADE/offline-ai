@@ -1,0 +1,13 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "info": {
+      "en-US": {
+        "title": "LearnGuide: Study Offline",
+        "subtitle": "Your offline study guide.",
+        "description": "Learn from your own materials, privately and offline.",
+        "promoText": "Turn your TXT and PDF materials into private, grounded lessons, quizzes, progress, and cited answers."
+      }
+    }
+  }
+}

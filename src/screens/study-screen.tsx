@@ -16,6 +16,8 @@ import { MaterialRepository } from "@/db/repositories/material-repository";
 import { TopicRepository } from "@/db/repositories/topic-repository";
 import type { Material, Topic } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
+import { isOfflineAiInstalled } from "@/hooks/use-learning-feature-access";
+import { useAppOverlayStore } from "@/stores/app-overlay-store";
 import { useRuntimeStore } from "@/stores/runtime-store";
 
 type StudyItem = { material: Material; topic: Topic };
@@ -56,6 +58,10 @@ export default function StudyScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
+  const openImportMaterial = useAppOverlayStore(
+    (state) => state.openImportMaterial,
+  );
+  const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
   const generation = useRuntimeStore((state) => state.generation);
   const embedding = useRuntimeStore((state) => state.embedding);
   const [items, setItems] = useState<StudyItem[]>([]);
@@ -122,8 +128,7 @@ export default function StudyScreen() {
         .slice(0, 3),
     [items],
   );
-  const offlineReady =
-    generation.phase === "ready" && embedding.phase === "ready";
+  const offlineReady = isOfflineAiInstalled(generation, embedding);
   const copy = recommendation ? recommendationCopy(recommendation.topic) : null;
   const recommendationTopicCount = recommendation
     ? items.filter((item) => item.material.id === recommendation.material.id).length
@@ -155,7 +160,7 @@ export default function StudyScreen() {
             label={
               offlineReady
                 ? "Private and ready offline"
-                : "Offline AI setup needed"
+                : "Offline AI available when you’re ready"
             }
             tone={offlineReady ? "offline" : "working"}
           />
@@ -163,12 +168,14 @@ export default function StudyScreen() {
 
         {!loading && !recommendation ? (
           <StatePanel
-            actionLabel="Open library"
-            body="Import and prepare a material. Soma will then recommend the next topic to learn or review."
+            actionLabel="Import material"
+            body="Add a PDF or TXT file when you are ready. LearnGuide will use it to create grounded lessons, quizzes, chat, and your next study action."
             icon="book-outline"
-            onAction={() => router.replace("/library")}
-            secondaryLabel="Manage offline AI"
-            onSecondary={() => router.navigate("/setup")}
+            onAction={openImportMaterial}
+            secondaryLabel={offlineReady ? undefined : "Download offline AI"}
+            onSecondary={
+              offlineReady ? undefined : openOfflineAi
+            }
             title="Your next study action will appear here"
           />
         ) : recommendation && copy ? (

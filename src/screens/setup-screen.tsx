@@ -10,6 +10,10 @@ import { AccessibilityInfo, Animated, StyleSheet, View } from 'react-native';
 import { embeddingRuntime } from '@/ai/embedding-runtime';
 import { generationRuntime } from '@/ai/generation-runtime';
 import {
+  saveModelInstallationState,
+  useModelInstallationStore,
+} from '@/ai/model-installation-state';
+import {
   getOfflineResourceSizes,
   inspectOfflineResources,
 } from '@/ai/offline-resource-state';
@@ -33,15 +37,21 @@ import {
   type ReadinessRow,
 } from '@/components/onboarding/readiness-components';
 import { ThemedText } from '@/components/themed-text';
+import { Brand } from '@/constants/brand';
 import { Radius, Spacing } from '@/constants/theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 import {
   completeOnboarding,
   getOnboardingStep,
+  hasCompletedOnboarding,
   saveOnboardingStep,
   type OnboardingStep,
 } from '@/onboarding/onboarding-state';
+import {
+  getOnboardingCompletionRoute,
+  type OnboardingCompletionReason,
+} from '@/onboarding/first-run-policy';
 import {
   deviceCompatibilityLabel,
   evaluateReadiness,
@@ -123,13 +133,13 @@ function installationError(
     return 'The downloaded resources could not be verified. Retry the installation on a stable connection.';
   }
   if (message.includes('memory') || message.includes('allocation')) {
-    return 'Close other apps to free memory, then return to Soma and retry.';
+    return `Close other apps to free memory, then return to ${Brand.name} and retry.`;
   }
   return 'The download was interrupted. Check your connection and try again.';
 }
 
 function InstallationWakeLock() {
-  useKeepAwake('soma-offline-ai-installation');
+  useKeepAwake('learn-guide-offline-ai-installation');
   return null;
 }
 
@@ -142,6 +152,8 @@ export default function SetupScreen() {
   const network = Network.useNetworkState();
   const generation = useRuntimeStore((state) => state.generation);
   const embedding = useRuntimeStore((state) => state.embedding);
+  const modelInstallation = useModelInstallationStore((state) => state);
+  const [onboardingComplete] = useState(hasCompletedOnboarding);
   const [step, setStep] = useState<OnboardingStep>(getOnboardingStep);
   const [readinessChecking, setReadinessChecking] = useState(true);
   const [readinessError, setReadinessError] = useState<string | null>(null);
@@ -150,6 +162,7 @@ export default function SetupScreen() {
   const [installationPhase, setInstallationPhase] = useState<InstallationPhase>('idle');
   const [installationMessage, setInstallationMessage] = useState<string | null>(null);
   const installationPromise = useRef<Promise<void> | null>(null);
+  const completionReason = useRef<OnboardingCompletionReason | null>(null);
   const [transition] = useState(() => new Animated.Value(1));
   const lastAnnouncedProgress = useRef(-1);
   const displayedStep = previewStep ?? step;
@@ -188,6 +201,21 @@ export default function SetupScreen() {
     setStep(next);
   }, []);
 
+  const finishOnboarding = useCallback(
+    (reason: OnboardingCompletionReason) => {
+      completionReason.current = reason;
+      if (reason === 'model_skipped' && !allInstalled) {
+        saveModelInstallationState('skipped');
+      }
+      if (reason === 'model_installed') {
+        saveModelInstallationState('ready');
+      }
+      completeOnboarding();
+      router.replace(getOnboardingCompletionRoute(reason));
+    },
+    [allInstalled, router]
+  );
+
   const refreshReadiness = useCallback(async () => {
     setReadinessChecking(true);
     setReadinessError(null);
@@ -209,7 +237,7 @@ export default function SetupScreen() {
         }
       }
     } catch {
-      setReadinessError('Soma could not complete the device check. Try the check again.');
+      setReadinessError(`${Brand.name} could not complete the device check. Try the check again.`);
     } finally {
       setReadinessChecking(false);
     }
@@ -235,8 +263,8 @@ export default function SetupScreen() {
 
   useEffect(() => {
     const titles: Record<OnboardingStep, string> = {
-      welcome: 'Welcome to Soma Offline',
-      benefits: 'How Soma helps',
+      welcome: `Welcome to ${Brand.name}`,
+      benefits: `How ${Brand.name} helps`,
       privacy: 'Privacy and offline operation',
       readiness: 'Device readiness',
       installing: 'Installing offline AI',
@@ -256,22 +284,23 @@ export default function SetupScreen() {
     }
     const timeout = setTimeout(() => {
       if (allInstalled) {
-        transitionTo('complete');
+        finishOnboarding('model_installed');
         return;
       }
       setInstallationPhase('failed');
-      setInstallationMessage(
-        'Setup was interrupted. Continue to install the remaining offline resources.'
-      );
+      const message =
+        'The download was interrupted. Ready when you are to install the remaining offline resources.';
+      saveModelInstallationState('failed', message);
+      setInstallationMessage(message);
     }, 0);
     return () => clearTimeout(timeout);
   }, [
     allInstalled,
+    finishOnboarding,
     installationPhase,
     previewStep,
     readinessChecking,
     step,
-    transitionTo,
   ]);
 
   useEffect(() => {
@@ -292,7 +321,7 @@ export default function SetupScreen() {
       return installationPromise.current;
     }
     if (allInstalled) {
-      transitionTo('complete');
+      finishOnboarding('model_installed');
       return Promise.resolve();
     }
     if (!readiness.canInstall) {
@@ -300,6 +329,11 @@ export default function SetupScreen() {
     }
 
     transitionTo('installing');
+    saveModelInstallationState(
+      installationPhase === 'failed' || modelInstallation.phase === 'failed'
+        ? 'retrying'
+        : 'downloading'
+    );
     setInstallationPhase('installing');
     setInstallationMessage(null);
 
@@ -311,21 +345,27 @@ export default function SetupScreen() {
         if (!reducedMotion) {
           await new Promise((resolve) => setTimeout(resolve, 320));
         }
-        transitionTo('complete');
+        if (completionReason.current === 'model_skipped') {
+          // The learner is already on Home. Preserve that navigation decision
+          // while accurately recording resources that finished in the background.
+          saveModelInstallationState('ready');
+        } else {
+          finishOnboarding('model_installed');
+        }
         AccessibilityInfo.announceForAccessibility(
           'Your offline study coach is ready'
         );
       } catch (error) {
         const runtime = useRuntimeStore.getState();
-        setInstallationPhase('failed');
-        setInstallationMessage(
-          installationError(
-            error,
-            runtime.generation,
-            runtime.embedding,
-            connected
-          )
+        const message = installationError(
+          error,
+          runtime.generation,
+          runtime.embedding,
+          connected
         );
+        saveModelInstallationState('failed', message);
+        setInstallationPhase('failed');
+        setInstallationMessage(message);
       } finally {
         installationPromise.current = null;
       }
@@ -336,15 +376,13 @@ export default function SetupScreen() {
   }, [
     allInstalled,
     connected,
+    finishOnboarding,
+    installationPhase,
+    modelInstallation.phase,
     readiness.canInstall,
     reducedMotion,
     transitionTo,
   ]);
-
-  const finish = (destination: '/import' | '/library') => {
-    completeOnboarding();
-    router.replace(destination);
-  };
 
   const progress = decisionSteps[displayedStep]
     ? { current: decisionSteps[displayedStep]!, total: 4 }
@@ -457,7 +495,7 @@ export default function SetupScreen() {
             note={
               allInstalled
                 ? 'Offline AI resources are already installed.'
-                : 'Wi-Fi is recommended for the initial installation.'
+                : 'You can download later from Home or Settings.'
             }
             primary={{
               disabled:
@@ -466,17 +504,21 @@ export default function SetupScreen() {
               label: allInstalled ? 'Continue' : 'Install offline AI',
               onPress: () =>
                 allInstalled
-                  ? transitionTo('complete')
+                  ? finishOnboarding('model_installed')
                   : void beginInstallation(),
             }}
-            secondary={{ label: 'Back', onPress: () => transitionTo('privacy') }}
+            secondary={{
+              label: 'Skip for now',
+              onPress: () => finishOnboarding('model_skipped'),
+            }}
+            tertiary={{ label: 'Back', onPress: () => transitionTo('privacy') }}
           />
         ) : displayedStep === 'installing' ? (
           <OnboardingFooter
             note={
               displayedInstallationPhase === 'failed'
                 ? 'Completed resources stay installed between retries.'
-                : 'Keep Soma open while the offline resources are prepared.'
+                : `Keep ${Brand.name} open while the offline resources are prepared.`
             }
             primary={{
               disabled:
@@ -492,6 +534,15 @@ export default function SetupScreen() {
               onPress: () => void beginInstallation(),
             }}
             secondary={
+              {
+                label:
+                  displayedInstallationPhase === 'failed'
+                    ? 'Download later'
+                    : 'Skip for now',
+                onPress: () => finishOnboarding('model_skipped'),
+              }
+            }
+            tertiary={
               displayedInstallationPhase === 'failed'
                 ? {
                     label: 'Back to device check',
@@ -503,12 +554,8 @@ export default function SetupScreen() {
         ) : (
           <OnboardingFooter
             primary={{
-              label: 'Import my first material',
-              onPress: () => finish('/import'),
-            }}
-            secondary={{
-              label: 'Explore the app',
-              onPress: () => finish('/library'),
+              label: 'Go to Home',
+              onPress: () => finishOnboarding('model_installed'),
             }}
           />
         )
@@ -522,9 +569,9 @@ export default function SetupScreen() {
           <>
             <BrandIllustration />
             <OnboardingHeader
-              eyebrow="Soma Offline"
+              eyebrow={Brand.name}
               title="Turn your materials into a guided learning journey."
-              subtitle="Study, ask questions, test your understanding, and know what to learn next—even without internet access."
+              subtitle={Brand.description}
             />
             <View style={[styles.privateNote, { backgroundColor: theme.secondarySoft }]}>
               <Ionicons name="lock-closed" color={theme.secondary} size={20} />
@@ -540,7 +587,7 @@ export default function SetupScreen() {
             <OnboardingHeader
               eyebrow="A clearer way to study"
               title="From source material to your next step"
-              subtitle="Soma organizes the work so you can focus on understanding."
+              subtitle={`${Brand.name} organizes the work so you can focus on understanding.`}
             />
             <View style={styles.itemList}>
               <BenefitItem
@@ -570,11 +617,11 @@ export default function SetupScreen() {
             <OnboardingHeader
               eyebrow="Private and available offline"
               title="Your materials stay on this device"
-              subtitle="Soma is designed for personal study without an account or remote library."
+              subtitle={`${Brand.name} is designed for personal study without an account or remote library.`}
             />
             <View style={styles.itemList}>
               <PrivacyItem
-                detail="Imported files are copied into Soma’s local app storage."
+                detail={`Imported files are copied into ${Brand.name}’s local app storage.`}
                 icon="phone-portrait-outline"
                 title="Materials remain on your device"
               />
@@ -605,9 +652,9 @@ export default function SetupScreen() {
         {displayedStep === 'readiness' ? (
           <>
             <OnboardingHeader
-              eyebrow="Before installation"
-              title="Check this device"
-              subtitle="Soma needs enough storage and an initial internet connection to install its offline study resources."
+              eyebrow={onboardingComplete ? 'Offline AI' : 'Optional offline AI'}
+              title="Download when you are ready"
+              subtitle={`${Brand.name} needs enough storage and an internet connection once. You can skip this step and explore the app now.`}
             />
             {allInstalled ? (
               <StatusBanner
@@ -623,7 +670,7 @@ export default function SetupScreen() {
               />
             ) : !readinessChecking && !readiness.compatible ? (
               <StatusBanner
-                message="This AI resource needs more device memory than Soma can safely use."
+                message={`This AI resource needs more device memory than ${Brand.name} can safely use.`}
                 title="This device is not supported"
                 tone="error"
               />
@@ -661,7 +708,7 @@ export default function SetupScreen() {
             <OnboardingHeader
               eyebrow="One-time installation"
               title="Installing offline AI"
-              subtitle="Soma is preparing the private study resources that will run on this device."
+              subtitle={`${Brand.name} is preparing the private study resources that will run on this device.`}
             />
             <DownloadProgress
               currentStatus={
@@ -716,7 +763,7 @@ export default function SetupScreen() {
               <RetryState message={installationMessage} />
             ) : (
               <ThemedText type="small" themeColor="textSecondary">
-                Keep Soma open during installation. You can use other apps briefly, but closing Soma may interrupt the current file.
+                Keep {Brand.name} open during installation. You can use other apps briefly, but closing {Brand.name} may interrupt the current file.
               </ThemedText>
             )}
           </>
@@ -724,7 +771,7 @@ export default function SetupScreen() {
 
         {displayedStep === 'complete' ? (
           <SuccessState
-            message="You can now import learning material and study without an internet connection."
+            message="Explore Home now and import learning material whenever you are ready."
             title="Your offline study coach is ready.">
             <View style={[styles.readyDetail, { backgroundColor: theme.successSoft }]}>
               <Ionicons name="cloud-offline-outline" color={theme.success} size={22} />

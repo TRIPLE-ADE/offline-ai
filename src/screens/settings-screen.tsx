@@ -4,16 +4,70 @@ import { File } from 'expo-file-system';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { StatusBadge } from '@/components/foundation/status-badge';
+import { inspectOfflineResources } from '@/ai/offline-resource-state';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { Brand } from '@/constants/brand';
 import { MaterialRepository } from '@/db/repositories/material-repository';
 import { useTheme } from '@/hooks/use-theme';
+import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import { offlineVectorIndex } from '@/retrieval/offline-vector-index';
 import { useRuntimeStore } from '@/stores/runtime-store';
+import { useModelInstallationStore } from '@/ai/model-installation-state';
+import {
+  showActionSheet,
+  useAppOverlayStore,
+} from '@/stores/app-overlay-store';
+import {
+  setAppearancePreference,
+  useAppearanceStore,
+  type AppearancePreference,
+} from '@/theme/appearance';
+import { toast } from '@/utils/app-toast';
+
+const APPEARANCE_OPTIONS: { label: string; value: AppearancePreference }[] = [
+  { label: 'System', value: 'system' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
+
+function offlineAiCopy(
+  phase: ReturnType<typeof useModelInstallationStore.getState>['phase'],
+  installed: boolean
+) {
+  if (installed) {
+    return {
+      badge: 'Ready offline',
+      description: 'Material search and explanations are ready without internet.',
+    };
+  }
+  if (phase === 'downloading' || phase === 'retrying') {
+    return {
+      badge: phase === 'retrying' ? 'Retrying download' : 'Downloading',
+      description: 'The offline resources are downloading. You can keep exploring the app.',
+    };
+  }
+  if (phase === 'failed') {
+    return {
+      badge: 'Ready to retry',
+      description: 'The last download paused. Retry whenever it suits you.',
+    };
+  }
+  if (phase === 'skipped') {
+    return {
+      badge: 'Download later',
+      description: 'Explore now and download the private AI model when you are ready.',
+    };
+  }
+  return {
+    badge: 'Not downloaded',
+    description: 'Download the private AI model whenever you want offline study features.',
+  };
+}
 
 function SettingsRow({
   icon,
@@ -53,12 +107,21 @@ export default function SettingsScreen() {
   const theme = useTheme();
   const generation = useRuntimeStore((state) => state.generation);
   const embedding = useRuntimeStore((state) => state.embedding);
-  const ready = generation.phase === 'ready' && embedding.phase === 'ready';
+  const modelInstallationPhase = useModelInstallationStore((state) => state.phase);
+  const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
+  const ready = isOfflineAiInstalled(generation, embedding);
+  const resourceCopy = offlineAiCopy(modelInstallationPhase, ready);
   const [materialStorage, setMaterialStorage] = useState('Calculating…');
+  const appearance = useAppearanceStore((state) => state.preference);
+
+  const updateAppearance = (preference: AppearancePreference) => {
+    setAppearancePreference(preference);
+  };
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      void inspectOfflineResources().catch(() => null);
       void new MaterialRepository(db).list().then((materials) => {
         if (!active) return;
         const bytes = materials.reduce((sum, material) => sum + (material.fileSize ?? 0), 0);
@@ -75,43 +138,43 @@ export default function SettingsScreen() {
   );
 
   const clearChat = () =>
-    Alert.alert(
-      'Delete all chat history?',
-      'This permanently deletes every saved question and answer. Materials, lessons, assessment results, and progress remain.',
-      [
-        { text: 'Keep chat history', style: 'cancel' },
-        {
-          text: 'Delete chat history',
-          style: 'destructive',
-          onPress: () => void db.runAsync('DELETE FROM chat_messages'),
-        },
-      ]
-    );
+    showActionSheet({
+      actionLabel: 'Delete chat',
+      cancelLabel: 'Keep chat',
+      description:
+        'Every saved question and answer will be removed. Materials, lessons, results, and progress remain.',
+      destructive: true,
+      onAction: () => {
+        void db
+          .runAsync('DELETE FROM chat_messages')
+          .then(() => toast.success('Chat history deleted'))
+          .catch(() => toast.error('Chat history could not be deleted'));
+      },
+      title: 'Delete all chat history?',
+    });
 
   const deleteAll = () =>
-    Alert.alert(
-      'Delete all local learning data?',
-      'This permanently deletes every imported material, lesson, question, answer, assessment result, recommendation, and progress record from this device. Offline AI resources remain installed.',
-      [
-        { text: 'Keep my data', style: 'cancel' },
-        {
-          text: 'Delete everything',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              const materials = await new MaterialRepository(db).list();
-              for (const material of materials) {
-                await offlineVectorIndex.deleteMaterial(material.id);
-                const file = new File(material.localUri);
-                if (file.exists) file.delete();
-              }
-              await new MaterialRepository(db).deleteAll();
-              router.replace('/library');
-            })();
-          },
-        },
-      ]
-    );
+    showActionSheet({
+      actionLabel: 'Delete everything',
+      cancelLabel: 'Keep my data',
+      description:
+        'This permanently removes every material, lesson, chat, result, recommendation, and progress record. Offline AI remains installed.',
+      destructive: true,
+      onAction: () => {
+        void (async () => {
+          const materials = await new MaterialRepository(db).list();
+          for (const material of materials) {
+            await offlineVectorIndex.deleteMaterial(material.id);
+            const file = new File(material.localUri);
+            if (file.exists) file.delete();
+          }
+          await new MaterialRepository(db).deleteAll();
+          router.replace('/home');
+          toast.success('Local learning data deleted');
+        })().catch(() => toast.error('Local learning data could not be deleted'));
+      },
+      title: 'Delete all local learning data?',
+    });
 
   return (
     <ThemedView style={styles.container}>
@@ -129,7 +192,7 @@ export default function SettingsScreen() {
               {
                 backgroundColor: theme.surfaceElevated,
                 borderColor: theme.border,
-                borderTopColor: theme.secondary,
+                borderTopColor: theme.primary,
               },
             ]}>
             <View style={styles.resourceHeading}>
@@ -143,18 +206,21 @@ export default function SettingsScreen() {
               <View style={styles.flex}>
                 <ThemedText type="subtitle">Offline AI</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {ready
-                    ? 'Material search and explanations are ready without internet.'
-                    : 'Finish the one-time setup before preparing and studying materials.'}
+                  {resourceCopy.description}
                 </ThemedText>
               </View>
             </View>
-            <StatusBadge label={ready ? 'Ready offline' : 'Setup incomplete'} tone={ready ? 'offline' : 'working'} />
+            <StatusBadge
+              label={resourceCopy.badge}
+              tone={ready ? 'offline' : 'working'}
+            />
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.navigate('/setup')}
+              onPress={openOfflineAi}
               style={styles.manageAction}>
-              <ThemedText type="smallBold" style={{ color: theme.primary }}>Manage offline resources</ThemedText>
+              <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                {ready ? 'Manage offline resources' : 'Download or retry'}
+              </ThemedText>
               <Ionicons name="arrow-forward" color={theme.primary} size={18} />
             </Pressable>
           </View>
@@ -165,7 +231,46 @@ export default function SettingsScreen() {
               { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
             ]}>
             <ThemedText type="caption" themeColor="textSecondary">READING AND ACCESSIBILITY</ThemedText>
-            <SettingsRow icon="contrast-outline" label="Appearance" value="Follows device setting" />
+            <View style={[styles.appearanceRow, { borderBottomColor: theme.divider }]}>
+              <View style={styles.appearanceHeading}>
+                <Ionicons name="contrast-outline" color={theme.textSecondary} size={22} />
+                <View style={styles.flex}>
+                  <ThemedText type="smallBold">Appearance</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Choose a comfortable reading theme
+                  </ThemedText>
+                </View>
+              </View>
+              <View
+                accessibilityLabel="Appearance"
+                accessibilityRole="radiogroup"
+                style={[styles.appearanceControl, { backgroundColor: theme.backgroundElement }]}>
+                {APPEARANCE_OPTIONS.map((option) => {
+                  const selected = appearance === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      onPress={() => updateAppearance(option.value)}
+                      style={({ pressed }) => [
+                        styles.appearanceOption,
+                        selected && {
+                          backgroundColor: theme.surfaceSelected,
+                          borderColor: theme.primary,
+                        },
+                        pressed && !selected && { backgroundColor: theme.surfaceTint },
+                      ]}>
+                      <ThemedText
+                        type="smallBold"
+                        style={{ color: selected ? theme.primary : theme.textSecondary }}>
+                        {option.label}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
             <SettingsRow icon="text-outline" label="Text size" value="Follows device text size" />
             <SettingsRow icon="accessibility-outline" label="Reduce motion" value="Follows device preference" />
           </View>
@@ -199,8 +304,8 @@ export default function SettingsScreen() {
             <ThemedText type="caption" themeColor="textSecondary">ABOUT</ThemedText>
             <SettingsRow
               icon="information-circle-outline"
-              label="Soma Offline"
-              value={`Version ${Constants.expoConfig?.version ?? '1.0.0'} · Hackathon MVP`}
+              label={Brand.name}
+              value={`Version ${Constants.expoConfig?.version ?? '1.0.0'} · ${Brand.tagline}`}
             />
             <View style={[styles.note, { backgroundColor: theme.backgroundElement }]}>
               <ThemedText type="smallBold">Current material support</ThemedText>
@@ -259,6 +364,34 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     minHeight: 68,
     paddingVertical: Spacing.two,
+  },
+  appearanceRow: {
+    borderBottomWidth: 1,
+    gap: Spacing.three,
+    paddingBottom: Spacing.three,
+    paddingTop: Spacing.three,
+  },
+  appearanceHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.three,
+  },
+  appearanceControl: {
+    borderCurve: 'continuous',
+    borderRadius: Radius.medium,
+    flexDirection: 'row',
+    padding: Spacing.one,
+  },
+  appearanceOption: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: Radius.small,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: TouchTarget,
+    paddingHorizontal: Spacing.two,
   },
   note: {
     borderCurve: 'continuous',

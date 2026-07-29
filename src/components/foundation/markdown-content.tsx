@@ -4,10 +4,12 @@ import {
   type MarkdownStyle,
 } from 'react-native-enriched-markdown';
 import { useCallback, useMemo } from 'react';
-import { Alert, Linking, StyleSheet } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 
 import { Fonts, Radius, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { showActionSheet } from '@/stores/app-overlay-store';
+import { toast } from '@/utils/app-toast';
 
 const MARKDOWN_FLAGS = {
   highlight: true,
@@ -197,7 +199,7 @@ export function MarkdownContent({
         checkmarkColor: theme.textOnPrimary,
       },
       highlight: {
-        backgroundColor: theme.accentSoft,
+        backgroundColor: theme.primarySoft,
         color: theme.textPrimary,
       },
     }),
@@ -206,21 +208,25 @@ export function MarkdownContent({
 
   const handleLinkPress = useCallback(({ url }: LinkPressEvent) => {
     if (!isSupportedExternalLink(url)) {
-      Alert.alert('Link unavailable', 'Only web links can be opened from answers.');
+      toast.error('Link unavailable', {
+        description: 'Only web links can be opened from answers.',
+      });
       return;
     }
 
-    Alert.alert('Open external link?', url, [
-      { style: 'cancel', text: 'Cancel' },
-      {
-        text: 'Open',
-        onPress: () => {
-          void Linking.openURL(url).catch(() => {
-            Alert.alert('Could not open link', 'Try opening the link again from your browser.');
+    showActionSheet({
+      actionLabel: 'Open',
+      cancelLabel: 'Cancel',
+      description: url,
+      onAction: () => {
+        void Linking.openURL(url).catch(() => {
+          toast.error('Could not open link', {
+            description: 'Try opening the link again from your browser.',
           });
-        },
+        });
       },
-    ]);
+      title: 'Open external link?',
+    });
   }, []);
 
   return (

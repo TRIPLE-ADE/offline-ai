@@ -3,8 +3,11 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MaterialCard } from '@/components/foundation/material-card';
+import { inspectOfflineResources } from '@/ai/offline-resource-state';
+import { useModelInstallationStore } from '@/ai/model-installation-state';
 import { BrandContext } from '@/components/brand/brand-context';
 import { FirstStudyPath } from '@/components/library/first-study-path';
 import { PrimaryButton } from '@/components/foundation/primary-button';
@@ -13,22 +16,30 @@ import { StatusBadge } from '@/components/foundation/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { Brand } from '@/constants/brand';
 import { MaterialRepository } from '@/db/repositories/material-repository';
 import { TopicRepository } from '@/db/repositories/topic-repository';
 import type { Material, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
+import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
+import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { useRuntimeStore } from '@/stores/runtime-store';
 import { hasCompletedOnboarding } from '@/onboarding/onboarding-state';
 
-type LibraryItem = { material: Material; topics: Topic[] };
+type HomeItem = { material: Material; topics: Topic[] };
 
-export default function LibraryScreen() {
+export default function HomeScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
+  const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
+  const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
   const generation = useRuntimeStore((state) => state.generation);
   const embedding = useRuntimeStore((state) => state.embedding);
-  const [items, setItems] = useState<LibraryItem[]>([]);
+  const modelInstallationPhase = useModelInstallationStore(
+    (state) => state.phase
+  );
+  const [items, setItems] = useState<HomeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [onboardingComplete] = useState(hasCompletedOnboarding);
 
@@ -42,8 +53,11 @@ export default function LibraryScreen() {
     useCallback(() => {
       let active = true;
       setLoading(true);
-      void new MaterialRepository(db)
-        .list()
+      void Promise.all([
+        inspectOfflineResources().catch(() => null),
+        new MaterialRepository(db).list(),
+      ])
+        .then(([, materials]) => materials)
         .then(async (materials) =>
           Promise.all(
             materials.map(async (material) => ({
@@ -71,7 +85,16 @@ export default function LibraryScreen() {
         .map((topic) => ({ material, topic }))
     )
     .sort((a, b) => b.topic.updatedAt.localeCompare(a.topic.updatedAt))[0];
-  const offlineReady = generation.phase === 'ready' && embedding.phase === 'ready';
+  const totalTopics = items.reduce((sum, item) => sum + item.topics.length, 0);
+  const completedTopics = items.reduce(
+    (sum, item) => sum + item.topics.filter((topic) => topic.status === 'completed').length,
+    0
+  );
+  const offlineReady = isOfflineAiInstalled(generation, embedding);
+  const modelActionLabel =
+    modelInstallationPhase === 'failed'
+      ? 'Retry offline AI'
+      : 'Download offline AI';
 
   if (!onboardingComplete) {
     return <ThemedView style={styles.container} />;
@@ -79,45 +102,73 @@ export default function LibraryScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        contentInsetAdjustmentBehavior="automatic"
-        showsVerticalScrollIndicator={false}>
+      <SafeAreaView edges={['top']} style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}>
           <View>
-            <BrandContext message="Your private workspace for turning source material into a clear study path." />
+            <BrandContext message={Brand.tagline} />
           </View>
 
           <View style={styles.statusRow}>
             <StatusBadge
-              label={offlineReady ? 'Offline AI ready' : 'Offline AI setup'}
+              label={offlineReady ? 'Offline AI ready' : 'AI available when you’re ready'}
               tone={offlineReady ? 'offline' : 'working'}
             />
             {!offlineReady ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.navigate('/setup')}
+                onPress={openOfflineAi}
                 style={styles.setupLink}>
                 <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                  Finish setup
+                  {modelActionLabel}
                 </ThemedText>
                 <Ionicons name="arrow-forward" color={theme.primary} size={16} />
               </Pressable>
             ) : null}
           </View>
 
+          {items.length > 0 ? (
+            <View
+              accessibilityLabel={`${items.length} materials. ${totalTopics} topics. ${completedTopics} completed.`}
+              style={[
+                styles.summary,
+                { borderBottomColor: theme.border, borderTopColor: theme.border },
+              ]}>
+              {[
+                ['Materials', items.length],
+                ['Topics', totalTopics],
+                ['Complete', completedTopics],
+              ].map(([label, value], index) => (
+                <View
+                  key={label}
+                  style={[
+                    styles.summaryMetric,
+                    index > 0 && { borderLeftColor: theme.border, borderLeftWidth: 1 },
+                  ]}>
+                  <ThemedText type="heading">{value}</ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {label}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           {current ? (
             <View
               style={[
                 styles.recommendation,
                 {
-                  backgroundColor: theme.surfaceTint,
-                  borderColor: theme.primarySoft,
-                  borderLeftColor: theme.secondary,
+                  backgroundColor: theme.milestoneSoft,
+                  borderColor: theme.milestone,
+                  borderLeftColor: theme.milestone,
                 },
               ]}>
               <View style={styles.recommendationTop}>
                 <View style={styles.flex}>
-                  <ThemedText type="caption" style={{ color: theme.primary }}>
+                  <ThemedText type="caption" style={{ color: theme.warning }}>
                     CONTINUE STUDYING
                   </ThemedText>
                   <ThemedText type="subtitle">{current.topic.title}</ThemedText>
@@ -141,7 +192,7 @@ export default function LibraryScreen() {
                     pathname: '/material/[materialId]/topic/[topicId]',
                     params: {
                       materialId: current.material.id,
-                      origin: 'library',
+                      origin: 'home',
                       topicId: current.topic.id,
                     },
                   })
@@ -152,17 +203,20 @@ export default function LibraryScreen() {
 
           {items.length === 0 && !loading ? (
             <FirstStudyPath
-              onImport={() => router.navigate('/import')}
-              onSetup={() => router.navigate('/setup')}
+              downloadAiLabel={modelActionLabel}
+              onImport={openImportMaterial}
+              onDownloadAi={
+                offlineReady ? undefined : openOfflineAi
+              }
             />
           ) : (
-            <View style={styles.librarySection}>
+            <View style={styles.materialsSection}>
               <SectionHeader
                 action={
                   <Pressable
                     accessibilityLabel="Import material"
                     accessibilityRole="button"
-                    onPress={() => router.navigate('/import')}
+                    onPress={openImportMaterial}
                     style={({ pressed }) => [
                       styles.addButton,
                       {
@@ -197,7 +251,8 @@ export default function LibraryScreen() {
               })}
             </View>
           )}
-      </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
     </ThemedView>
   );
 }
@@ -216,6 +271,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   setupLink: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one, minHeight: TouchTarget },
+  summary: {
+    borderBottomWidth: 1,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    paddingVertical: Spacing.three,
+  },
+  summaryMetric: {
+    flex: 1,
+    gap: Spacing.half,
+    paddingHorizontal: Spacing.three,
+  },
   recommendation: {
     borderCurve: 'continuous',
     borderRadius: Radius.large,
@@ -234,7 +300,7 @@ const styles = StyleSheet.create({
     width: TouchTarget,
   },
   flex: { flex: 1, gap: Spacing.one },
-  librarySection: { gap: Spacing.three },
+  materialsSection: { gap: Spacing.three },
   addButton: {
     alignItems: 'center',
     borderCurve: 'continuous',

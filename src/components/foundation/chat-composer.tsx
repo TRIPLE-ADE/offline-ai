@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { Elevation, Fonts, Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { Fonts, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export function ChatComposer({
@@ -39,7 +39,6 @@ export function ChatComposer({
             backgroundColor: theme.surfaceElevated,
             borderColor: focused ? theme.focusRing : theme.borderStrong,
             borderWidth: focused ? 2 : 1,
-            shadowColor: theme.shadow,
           },
         ]}>
         <TextInput
@@ -94,7 +93,6 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.two,
   },
   inputContainer: {
-    ...Elevation.floating,
     alignItems: 'flex-end',
     borderCurve: 'continuous',
     borderRadius: Radius.large,

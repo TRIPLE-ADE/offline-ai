@@ -8,28 +8,34 @@ import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { SQLiteProvider } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
-import { useColorScheme } from "react-native";
+import { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { initializeExecutorch } from "@/ai/initialize-executorch";
+import { inspectOfflineResources } from "@/ai/offline-resource-state";
+import { AppOverlays } from "@/components/app-overlays";
+import { AppToaster } from "@/components/foundation/app-toaster";
 import { Colors, Fonts } from "@/constants/theme";
 import { DATABASE_NAME, migrateDatabase } from "@/db/database";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  initializeAppearancePreference,
+  useResolvedAppearance,
+} from "@/theme/appearance";
 
 void SplashScreen.preventAutoHideAsync();
 initializeExecutorch();
+initializeAppearancePreference();
 
 function AppNavigator() {
   const theme = useTheme();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const appearance = useResolvedAppearance();
 
   return (
     <>
-      <StatusBar style={isDark ? "light" : "dark"} />
+      <StatusBar animated style={appearance === "dark" ? "light" : "dark"} />
       <Stack
         screenOptions={{
           contentStyle: { backgroundColor: theme.background },
@@ -38,7 +44,8 @@ function AppNavigator() {
           headerStyle: { backgroundColor: theme.background },
           headerTintColor: theme.textPrimary,
           headerTitleStyle: { fontFamily: Fonts.semibold },
-        }}>
+        }}
+      >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
@@ -47,14 +54,15 @@ function AppNavigator() {
 }
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const appearance = useResolvedAppearance();
   const [fontsLoaded] = useFonts({
     [Fonts.regular]: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
     [Fonts.medium]: require("@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf"),
     [Fonts.semibold]: require("@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf"),
     [Fonts.bold]: require("@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"),
   });
-  const isDark = colorScheme === "dark";
+  const [resourcesInspected, setResourcesInspected] = useState(false);
+  const isDark = appearance === "dark";
   const palette = isDark ? Colors.dark : Colors.light;
   const navigationTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),
@@ -69,17 +77,31 @@ export default function RootLayout() {
   };
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded && resourcesInspected) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, resourcesInspected]);
 
-  if (!fontsLoaded) {
+  useEffect(() => {
+    let active = true;
+    void inspectOfflineResources()
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setResourcesInspected(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!fontsLoaded || !resourcesInspected) {
     return null;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView
+      style={{ backgroundColor: palette.background, flex: 1 }}
+    >
       <SafeAreaProvider>
         <KeyboardProvider>
           <ThemeProvider value={navigationTheme}>
@@ -88,7 +110,8 @@ export default function RootLayout() {
               onInit={migrateDatabase}
             >
               <AppNavigator />
-              <StatusBar style={isDark ? "light" : "dark"} />
+              <AppOverlays />
+              <AppToaster />
             </SQLiteProvider>
           </ThemeProvider>
         </KeyboardProvider>

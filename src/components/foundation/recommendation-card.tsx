@@ -34,17 +34,17 @@ export function RecommendationCard({
       style={[
         styles.card,
         {
-          backgroundColor: theme.surfaceTint,
-          borderColor: theme.primarySoft,
-          borderLeftColor: theme.secondary,
+          backgroundColor: theme.milestoneSoft,
+          borderColor: theme.milestone,
+          borderLeftColor: theme.milestone,
         },
       ]}>
       <View style={styles.heading}>
-        <View style={[styles.icon, { backgroundColor: theme.primarySoft }]}>
+        <View style={[styles.icon, { backgroundColor: theme.surfaceElevated }]}>
           <Ionicons name={icon} color={theme.primary} size={28} />
         </View>
         <View style={styles.flex}>
-          <ThemedText type="caption" style={{ color: theme.primary }}>
+          <ThemedText type="caption" style={{ color: theme.warning }}>
             {eyebrow}
           </ThemedText>
           <ThemedText type="heading">{title}</ThemedText>

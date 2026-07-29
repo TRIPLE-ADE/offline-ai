@@ -1,9 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
   FlatList,
   type ListRenderItem,
   type NativeScrollEvent,
@@ -18,14 +23,22 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { materialChatService } from '@/chat/material-chat-service';
 import { ChatComposer } from '@/components/foundation/chat-composer';
 import { ChatMessage as ChatMessageBubble } from '@/components/foundation/chat-message';
+import { StatePanel } from '@/components/foundation/state-panel';
 import { SourcePreviewSheet } from '@/components/foundation/source-preview-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Elevation, MaxContentWidth, Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { MaxContentWidth, Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { Brand } from '@/constants/brand';
 import { ChatRepository } from '@/db/repositories/chat-repository';
 import { MaterialRepository } from '@/db/repositories/material-repository';
 import type { ChatMessage, StoredCitation } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
+import { useLearningFeatureAccess } from '@/hooks/use-learning-feature-access';
+import {
+  showActionSheet,
+  useAppOverlayStore,
+} from '@/stores/app-overlay-store';
+import { toast } from '@/utils/app-toast';
 import { userFacingError } from '@/utils/user-facing-error';
 
 const suggestions = [
@@ -60,13 +73,19 @@ export default function MaterialChatScreen() {
     prompt?: string;
   }>();
   const db = useSQLiteContext();
+  const router = useRouter();
   const theme = useTheme();
+  const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
+  const { ensureAccess, modelInstalled } = useLearningFeatureAccess();
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const interruptedRef = useRef(false);
   const seededPrompt = useRef(false);
   const shouldAutoScrollRef = useRef(true);
   const shouldSnapOnNextLayoutRef = useRef(true);
   const [materialTitle, setMaterialTitle] = useState('This material');
+  const [materialAvailable, setMaterialAvailable] = useState<boolean | null>(
+    null
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -81,14 +100,18 @@ export default function MaterialChatScreen() {
   }, []);
 
   const load = useCallback(async () => {
-    const [nextMessages, material] = await Promise.all([
-      materialChatService.load(db, materialId),
-      new MaterialRepository(db).getById(materialId),
-    ]);
+    const material = await new MaterialRepository(db).getById(materialId);
+    if (!material) {
+      setMaterialAvailable(false);
+      setMessages([]);
+      return;
+    }
+    const nextMessages = await materialChatService.load(db, materialId);
     shouldAutoScrollRef.current = true;
     shouldSnapOnNextLayoutRef.current = true;
+    setMaterialAvailable(true);
     setMessages(nextMessages);
-    if (material) setMaterialTitle(material.title);
+    setMaterialTitle(material.title);
   }, [db, materialId]);
 
   useFocusEffect(
@@ -108,6 +131,9 @@ export default function MaterialChatScreen() {
     async (suggested?: string) => {
       const currentQuestion = (suggested ?? question).trim();
       if (currentQuestion.length < 3 || isGenerating) return;
+      if (!ensureAccess({ hasMaterial: materialAvailable === true })) {
+        return;
+      }
       setQuestion('');
       setError(null);
       setIsGenerating(true);
@@ -161,7 +187,16 @@ export default function MaterialChatScreen() {
         await load();
       }
     },
-    [db, isGenerating, load, materialId, question, scrollToLatest]
+    [
+      db,
+      ensureAccess,
+      isGenerating,
+      load,
+      materialAvailable,
+      materialId,
+      question,
+      scrollToLatest,
+    ]
   );
 
   const stop = useCallback(() => {
@@ -170,32 +205,27 @@ export default function MaterialChatScreen() {
   }, []);
 
   const clearConversation = useCallback(() => {
-    Alert.alert(
-      'Clear this conversation?',
-      'Every question and answer for this material will be permanently deleted. Your material and study progress will stay intact.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear conversation',
-          style: 'destructive',
-          onPress: () => {
-            void new ChatRepository(db).clearForMaterial(materialId).then(load);
-          },
-        },
-      ]
-    );
+    showActionSheet({
+      actionLabel: 'Clear conversation',
+      cancelLabel: 'Keep conversation',
+      description:
+        'Every question and answer for this material will be permanently deleted. Your material and progress stay intact.',
+      destructive: true,
+      onAction: () => {
+        void new ChatRepository(db)
+          .clearForMaterial(materialId)
+          .then(load)
+          .then(() => toast.success('Conversation cleared'))
+          .catch(() => toast.error('Conversation could not be cleared'));
+      },
+      title: 'Clear this conversation?',
+    });
   }, [db, load, materialId]);
 
-  const openConversationOptions = useCallback(() => {
-    Alert.alert('Conversation options', materialTitle, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear conversation',
-        style: 'destructive',
-        onPress: clearConversation,
-      },
-    ]);
-  }, [clearConversation, materialTitle]);
+  const openConversationOptions = useCallback(
+    () => clearConversation(),
+    [clearConversation]
+  );
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -244,19 +274,26 @@ export default function MaterialChatScreen() {
         styles.contextCard,
         { backgroundColor: theme.surfaceTint, borderColor: theme.border },
       ]}>
-      <View style={[styles.contextIcon, { backgroundColor: theme.secondarySoft }]}>
-        <Ionicons name="shield-checkmark-outline" color={theme.secondary} size={18} />
+      <View style={[styles.contextIcon, { backgroundColor: theme.primarySoft }]}>
+        <Ionicons name="shield-checkmark-outline" color={theme.primary} size={18} />
       </View>
       <View style={styles.flex}>
         <ThemedText type="smallBold">Private, source-grounded answers</ThemedText>
         <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
-          {topicTitle ? `Focused on ${topicTitle}` : 'Soma uses only this material'}
+          {topicTitle ? `Focused on ${topicTitle}` : `${Brand.name} uses only this material`}
         </ThemedText>
       </View>
       <View style={styles.offlineStatus}>
-        <View style={[styles.offlineDot, { backgroundColor: theme.secondary }]} />
-        <ThemedText type="caption" style={{ color: theme.secondary }}>
-          Offline
+        <View
+          style={[
+            styles.offlineDot,
+            { backgroundColor: modelInstalled ? theme.success : theme.warning },
+          ]}
+        />
+        <ThemedText
+          type="caption"
+          style={{ color: modelInstalled ? theme.success : theme.warning }}>
+          {modelInstalled ? 'Offline' : 'Download needed'}
         </ThemedText>
       </View>
     </View>
@@ -267,8 +304,8 @@ export default function MaterialChatScreen() {
       <View style={styles.emptyIntro}>
         <View style={[styles.emptyIcon, { backgroundColor: theme.primarySoft }]}>
           <Ionicons name="book-outline" color={theme.primary} size={27} />
-          <View style={[styles.sparkle, { backgroundColor: theme.accentSoft }]}>
-            <Ionicons name="sparkles" color={theme.accent} size={13} />
+          <View style={[styles.sparkle, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
+            <Ionicons name="shield-checkmark" color={theme.primary} size={13} />
           </View>
         </View>
         <ThemedText type="subtitle" style={styles.centerText}>
@@ -340,6 +377,32 @@ export default function MaterialChatScreen() {
       </View>
     ) : null;
 
+  if (materialAvailable === null) {
+    return (
+      <ThemedView style={styles.loading}>
+        <ActivityIndicator color={theme.primary} />
+        <ThemedText themeColor="textSecondary">Opening material chat…</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (!materialAvailable) {
+    return (
+      <ThemedView style={styles.missingMaterial}>
+        <Stack.Screen options={{ title: 'Material chat' }} />
+        <StatePanel
+          actionLabel="Import material"
+          body="Chat answers need a PDF or TXT source so LearnGuide can stay grounded and cite what it uses."
+          icon="document-text-outline"
+          onAction={openImportMaterial}
+          secondaryLabel="Not now"
+          onSecondary={() => router.replace('/home')}
+          title="Import a file to start chatting"
+        />
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       <Stack.Screen
@@ -408,7 +471,6 @@ export default function MaterialChatScreen() {
                 {
                   backgroundColor: theme.surfaceElevated,
                   borderColor: theme.border,
-                  shadowColor: theme.shadow,
                   transform: [{ scale: pressed ? 0.95 : 1 }],
                 },
               ]}>
@@ -438,6 +500,17 @@ export default function MaterialChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loading: {
+    alignItems: 'center',
+    flex: 1,
+    gap: Spacing.two,
+    justifyContent: 'center',
+  },
+  missingMaterial: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: Spacing.four,
+  },
   listLayer: { flex: 1 },
   list: { flex: 1 },
   content: {
@@ -488,6 +561,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: Radius.full,
+    borderWidth: 1,
     bottom: -3,
     height: 26,
     justifyContent: 'center',
@@ -538,7 +612,6 @@ const styles = StyleSheet.create({
     width: 32,
   },
   scrollButton: {
-    ...Elevation.floating,
     alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: Radius.full,

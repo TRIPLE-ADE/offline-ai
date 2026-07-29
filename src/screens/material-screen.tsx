@@ -10,7 +10,6 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,10 +30,16 @@ import { MaterialRepository } from "@/db/repositories/material-repository";
 import { TopicRepository } from "@/db/repositories/topic-repository";
 import type { Material, MaterialStatus, Topic } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
+import { useLearningFeatureAccess } from "@/hooks/use-learning-feature-access";
 import { topicRoadmapService } from "@/learning/topic-roadmap-service";
 import { materialProcessingService } from "@/materials/process-material";
 import { offlineVectorIndex } from "@/retrieval/offline-vector-index";
+import {
+  showActionSheet,
+  useAppOverlayStore,
+} from "@/stores/app-overlay-store";
 import { useRuntimeStore } from "@/stores/runtime-store";
+import { toast } from "@/utils/app-toast";
 import { userFacingError } from "@/utils/user-facing-error";
 
 const PROCESS_STEPS: { status: MaterialStatus; label: string }[] = [
@@ -59,8 +64,13 @@ export default function MaterialScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
+  const openImportMaterial = useAppOverlayStore(
+    (state) => state.openImportMaterial,
+  );
+  const { ensureAccess } = useLearningFeatureAccess();
   const embedding = useRuntimeStore((state) => state.embedding);
   const [material, setMaterial] = useState<Material | null>(null);
+  const [loadedMaterialId, setLoadedMaterialId] = useState<string | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [processingMessage, setProcessingMessage] = useState<string | null>(
     null,
@@ -77,6 +87,7 @@ export default function MaterialScreen() {
     setMaterial(nextMaterial);
     setTopics(nextTopics);
     setProcessingMessage(nextMaterial?.statusMessage ?? null);
+    setLoadedMaterialId(materialId);
   }, [db, materialId]);
 
   useFocusEffect(
@@ -102,6 +113,9 @@ export default function MaterialScreen() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 
   const process = async () => {
+    if (!ensureAccess({ hasMaterial: true })) {
+      return;
+    }
     setError(null);
     setIsProcessing(true);
     try {
@@ -133,6 +147,9 @@ export default function MaterialScreen() {
   };
 
   const generateRoadmap = async () => {
+    if (!ensureAccess({ hasMaterial: true })) {
+      return;
+    }
     setError(null);
     setIsGeneratingRoadmap(true);
     setProcessingMessage(
@@ -156,39 +173,52 @@ export default function MaterialScreen() {
 
   const confirmDelete = () => {
     if (!material) return;
-    Alert.alert(
-      "Delete this material?",
-      `This permanently deletes “${material.title}”, its study progress, lessons, questions, and chat history from this device.`,
-      [
-        { text: "Keep material", style: "cancel" },
-        {
-          text: "Delete material",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              await offlineVectorIndex.deleteMaterial(material.id);
-              await new MaterialRepository(db).delete(material.id);
-              const file = new File(material.localUri);
-              if (file.exists) file.delete();
-              router.replace("/library");
-            })().catch((caught) =>
-              setError(
-                caught instanceof Error
-                  ? caught.message
-                  : "The material could not be deleted.",
-              ),
-            );
-          },
-        },
-      ],
-    );
+    showActionSheet({
+      actionLabel: "Delete material",
+      cancelLabel: "Keep material",
+      description: `This permanently deletes “${material.title}”, its progress, lessons, questions, and chat history.`,
+      destructive: true,
+      onAction: () => {
+        void (async () => {
+          await offlineVectorIndex.deleteMaterial(material.id);
+          await new MaterialRepository(db).delete(material.id);
+          const file = new File(material.localUri);
+          if (file.exists) file.delete();
+          router.replace("/home");
+          toast.success("Material deleted");
+        })().catch((caught) =>
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "The material could not be deleted.",
+          ),
+        );
+      },
+      title: "Delete this material?",
+    });
   };
 
-  if (!material) {
+  if (loadedMaterialId !== materialId) {
     return (
       <ThemedView style={styles.centered}>
         <ActivityIndicator color={theme.primary} />
         <ThemedText themeColor="textSecondary">Opening material…</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (!material) {
+    return (
+      <ThemedView style={styles.missingMaterial}>
+        <StatePanel
+          actionLabel="Import material"
+          body="This study page no longer has a PDF or TXT source on this device."
+          icon="document-text-outline"
+          onAction={openImportMaterial}
+          secondaryLabel="Go Home"
+          onSecondary={() => router.replace("/home")}
+          title="Import a file to continue"
+        />
       </ThemedView>
     );
   }
@@ -238,7 +268,7 @@ export default function MaterialScreen() {
               {
                   backgroundColor: theme.surfaceElevated,
                   borderColor: theme.border,
-                  borderTopColor: theme.secondary,
+                  borderTopColor: theme.primary,
                 },
             ]}
           >
@@ -269,7 +299,7 @@ export default function MaterialScreen() {
               steps={PROCESS_STEPS.map((step) => step.label)}
             />
             <ThemedText type="caption" themeColor="textSecondary">
-              You may leave this screen. Keep Soma open while preparation is
+              You may leave this screen. Keep LearnGuide open while preparation is
               running.
             </ThemedText>
             <PrimaryButton
@@ -292,7 +322,7 @@ export default function MaterialScreen() {
             actionLabel={
               isGeneratingRoadmap ? "Creating roadmap…" : "Create topic roadmap"
             }
-            body="Soma will organize the material into a recommended order. You will still be free to open any topic."
+            body="LearnGuide will organize the material into a recommended order. You will still be free to open any topic."
             icon="map-outline"
             onAction={() => void generateRoadmap()}
             secondaryLabel={
@@ -338,13 +368,13 @@ export default function MaterialScreen() {
                 style={[
                   styles.recommendation,
                   {
-                    backgroundColor: theme.surfaceTint,
-                    borderColor: theme.primarySoft,
-                    borderLeftColor: theme.secondary,
+                    backgroundColor: theme.milestoneSoft,
+                    borderColor: theme.milestone,
+                    borderLeftColor: theme.milestone,
                   },
                 ]}
               >
-                <ThemedText type="caption" style={{ color: theme.primary }}>
+                <ThemedText type="caption" style={{ color: theme.warning }}>
                   RECOMMENDED NEXT
                 </ThemedText>
                 <ThemedText type="heading">{recommended.title}</ThemedText>
@@ -499,6 +529,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.two,
     justifyContent: "center",
+  },
+  missingMaterial: {
+    flex: 1,
+    justifyContent: "center",
+    padding: Spacing.four,
   },
   detailHeader: {
     alignItems: "flex-start",

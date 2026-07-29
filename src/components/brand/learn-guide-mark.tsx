@@ -2,33 +2,35 @@ import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { BrandColors, Fonts, Radius, Spacing } from '@/constants/theme';
+import { Brand } from '@/constants/brand';
+import { Fonts, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-type SomaMarkProps = {
+type LearnGuideMarkProps = {
   size?: number;
   showName?: boolean;
   inverse?: boolean;
 };
 
-export function SomaMark({
+export function LearnGuideMark({
   size = 40,
   showName = false,
   inverse = false,
-}: SomaMarkProps) {
+}: LearnGuideMarkProps) {
   const theme = useTheme();
-  const background = inverse ? theme.surfaceInverse : BrandColors.indigo;
-  const foreground = inverse ? theme.textOnInverse : BrandColors.warmWhite;
+  const background = theme.white;
+  const wordmarkPrimary = inverse ? theme.textOnInverse : theme.textPrimary;
 
   return (
     <View
-      accessibilityLabel={showName ? 'Soma Offline' : 'Soma'}
+      accessibilityLabel={Brand.name}
       style={styles.row}>
       <View
         style={[
           styles.mark,
           {
             backgroundColor: background,
+            borderColor: theme.border,
             borderRadius: Math.max(Radius.small, size * 0.25),
             height: size,
             width: size,
@@ -37,18 +39,13 @@ export function SomaMark({
         <Image
           accessibilityElementsHidden
           contentFit="contain"
-          source={require('@/assets/images/soma-mark.png')}
+          source={require('@/assets/images/icon.png')}
           style={styles.image}
-          tintColor={inverse ? foreground : undefined}
         />
       </View>
       {showName ? (
-        <ThemedText
-          style={[
-            styles.name,
-            { color: inverse ? theme.textOnInverse : theme.textPrimary },
-          ]}>
-          Soma
+        <ThemedText style={[styles.name, { color: wordmarkPrimary }]}>
+          {Brand.name}
         </ThemedText>
       ) : null}
     </View>
@@ -60,6 +57,7 @@ const styles = StyleSheet.create({
   mark: {
     alignItems: 'center',
     borderCurve: 'continuous',
+    borderWidth: 1,
     justifyContent: 'center',
     overflow: 'hidden',
   },

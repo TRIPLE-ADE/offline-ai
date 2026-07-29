@@ -43,8 +43,8 @@ export function MaterialCard({
         },
       ]}>
       <View style={styles.top}>
-        <View style={[styles.icon, { backgroundColor: theme.secondarySoft }]}>
-          <Ionicons name="document-text-outline" color={theme.secondary} size={24} />
+        <View style={[styles.icon, { backgroundColor: theme.primarySoft }]}>
+          <Ionicons name="document-text-outline" color={theme.primary} size={24} />
         </View>
         <View style={styles.flex}>
           <ThemedText type="subtitle" numberOfLines={2}>

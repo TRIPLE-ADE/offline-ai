@@ -32,7 +32,7 @@ export function SourcePreviewSheet({
             styles.sheet,
             {
               backgroundColor: theme.surfaceElevated,
-              borderTopColor: theme.secondary,
+              borderTopColor: theme.primary,
               paddingBottom: Math.max(insets.bottom, 20),
             },
           ]}>
@@ -60,7 +60,7 @@ export function SourcePreviewSheet({
           </View>
           <ScrollView contentContainerStyle={styles.content}>
             <ThemedText themeColor="textSecondary">Relevant passage</ThemedText>
-            <View style={[styles.quote, { borderLeftColor: theme.secondary }]}>
+            <View style={[styles.quote, { borderLeftColor: theme.primary }]}>
               <ThemedText>{citation?.excerpt}</ThemedText>
             </View>
             <ThemedText type="small" themeColor="textTertiary">

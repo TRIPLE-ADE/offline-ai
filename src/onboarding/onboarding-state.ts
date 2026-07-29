@@ -1,7 +1,10 @@
 import { File, Paths } from 'expo-file-system';
 
-const ONBOARDING_MARKER = new File(Paths.document, 'soma-onboarding-v1.complete');
-const ONBOARDING_PROGRESS = new File(Paths.document, 'soma-onboarding-v2.progress.json');
+const ONBOARDING_MARKER = new File(Paths.document, 'learn-guide-onboarding-v1.complete');
+const ONBOARDING_PROGRESS = new File(
+  Paths.document,
+  'learn-guide-onboarding-v2.progress.json'
+);
 
 export type OnboardingStep =
   | 'welcome'

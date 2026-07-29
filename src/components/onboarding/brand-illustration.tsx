@@ -22,7 +22,7 @@ export function BrandIllustration() {
       <Image
         accessibilityElementsHidden
         contentFit="cover"
-        source={require('@/assets/images/soma-guided-learning-hero.png')}
+        source={require('@/assets/images/learn-guide-onboarding.png')}
         style={StyleSheet.absoluteFill}
         transition={180}
       />

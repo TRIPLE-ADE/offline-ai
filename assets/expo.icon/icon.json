@@ -7,8 +7,8 @@
       "layers": [
         {
           "glass": false,
-          "image-name": "soma-mark.png",
-          "name": "Soma book S with spark",
+          "image-name": "learn-guide-icon.png",
+          "name": "LearnGuide",
           "position": {
             "scale": 1,
             "translation-in-points": [

@@ -7,7 +7,8 @@ import {
   SecondaryButton,
   type PrimaryButtonProps,
 } from '@/components/foundation/primary-button';
-import { SomaMark } from '@/components/brand/soma-mark';
+import { LearnGuideMark } from '@/components/brand/learn-guide-mark';
+import { Brand } from '@/constants/brand';
 import { ProgressBar } from '@/components/foundation/progress-bar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -50,10 +51,12 @@ export function OnboardingHeader({ eyebrow, title, subtitle }: OnboardingHeaderP
     <View accessibilityRole="header" style={styles.header}>
       {eyebrow ? (
         <View style={styles.brandRow}>
-          <SomaMark size={38} />
-          <ThemedText type="smallBold" style={{ color: theme.primary }}>
-            {eyebrow}
-          </ThemedText>
+          <LearnGuideMark size={38} showName={eyebrow === Brand.name} />
+          {eyebrow !== Brand.name ? (
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              {eyebrow}
+            </ThemedText>
+          ) : null}
         </View>
       ) : null}
       <ThemedText type="title">{title}</ThemedText>
@@ -65,10 +68,16 @@ export function OnboardingHeader({ eyebrow, title, subtitle }: OnboardingHeaderP
 type OnboardingFooterProps = {
   primary: PrimaryButtonProps;
   secondary?: Omit<PrimaryButtonProps, 'variant'>;
+  tertiary?: Omit<PrimaryButtonProps, 'variant'>;
   note?: string;
 };
 
-export function OnboardingFooter({ primary, secondary, note }: OnboardingFooterProps) {
+export function OnboardingFooter({
+  primary,
+  secondary,
+  tertiary,
+  note,
+}: OnboardingFooterProps) {
   const theme = useTheme();
 
   return (
@@ -88,6 +97,7 @@ export function OnboardingFooter({ primary, secondary, note }: OnboardingFooterP
         ) : null}
         <PrimaryButton {...primary} />
         {secondary ? <SecondaryButton {...secondary} /> : null}
+        {tertiary ? <PrimaryButton {...tertiary} variant="tertiary" /> : null}
       </View>
     </View>
   );
