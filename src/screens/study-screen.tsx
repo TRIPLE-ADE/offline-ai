@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "expo-router";
+import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { PrimaryButton } from "@/components/foundation/primary-button";
@@ -12,13 +11,12 @@ import { StatusBadge } from "@/components/foundation/status-badge";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Spacing, TouchTarget } from "@/constants/theme";
-import { MaterialRepository } from "@/db/repositories/material-repository";
-import { TopicRepository } from "@/db/repositories/topic-repository";
 import type { Material, Topic } from "@/db/types";
+import { useModelInstallationStore } from "@/ai/model-installation-state";
 import { useTheme } from "@/hooks/use-theme";
 import { isOfflineAiInstalled } from "@/hooks/use-learning-feature-access";
 import { useAppOverlayStore } from "@/stores/app-overlay-store";
-import { useRuntimeStore } from "@/stores/runtime-store";
+import { useLearningOverviewStore } from "@/stores/learning-overview-store";
 
 type StudyItem = { material: Material; topic: Topic };
 
@@ -55,51 +53,31 @@ function recommendationCopy(topic: Topic) {
 }
 
 export default function StudyScreen() {
-  const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
   const openImportMaterial = useAppOverlayStore(
     (state) => state.openImportMaterial,
   );
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
-  const generation = useRuntimeStore((state) => state.generation);
-  const embedding = useRuntimeStore((state) => state.embedding);
-  const [items, setItems] = useState<StudyItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      setLoading(true);
-
-      void new MaterialRepository(db)
-        .list()
-        .then(async (materials) => {
-          const prepared = materials.filter(
-            (material) => material.status === "ready",
-          );
-          return (
-            await Promise.all(
-              prepared.map(async (material) => {
-                const topics = await new TopicRepository(db).listForMaterial(
-                  material.id,
-                );
-                return topics.map((topic) => ({ material, topic }));
-              }),
-            )
-          ).flat();
-        })
-        .then((nextItems) => {
-          if (active) setItems(nextItems);
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-
-      return () => {
-        active = false;
-      };
-    }, [db]),
+  const modelInstallationPhase = useModelInstallationStore(
+    (state) => state.phase,
+  );
+  const modelInstallationVerification = useModelInstallationStore(
+    (state) => state.verification,
+  );
+  const overviewMaterials = useLearningOverviewStore(
+    (state) => state.materials,
+  );
+  const overviewStatus = useLearningOverviewStore((state) => state.status);
+  const loading = overviewStatus === "idle" || overviewStatus === "loading";
+  const items = useMemo(
+    () =>
+      overviewMaterials
+        .filter(({ material }) => material.status === "ready")
+        .flatMap(({ material, topics }) =>
+          topics.map((topic) => ({ material, topic })),
+        ),
+    [overviewMaterials],
   );
 
   const recommendation = useMemo(
@@ -128,7 +106,11 @@ export default function StudyScreen() {
         .slice(0, 3),
     [items],
   );
-  const offlineReady = isOfflineAiInstalled(generation, embedding);
+  const modelStatusChecked = modelInstallationVerification === "complete";
+  const offlineReady = isOfflineAiInstalled(
+    modelInstallationPhase,
+    modelInstallationVerification,
+  );
   const copy = recommendation ? recommendationCopy(recommendation.topic) : null;
   const recommendationTopicCount = recommendation
     ? items.filter((item) => item.material.id === recommendation.material.id).length
@@ -158,11 +140,19 @@ export default function StudyScreen() {
           </ThemedText>
           <StatusBadge
             label={
-              offlineReady
+              !modelStatusChecked
+                ? "Checking offline AI…"
+                : offlineReady
                 ? "Private and ready offline"
                 : "Offline AI available when you’re ready"
             }
-            tone={offlineReady ? "offline" : "working"}
+            tone={
+              !modelStatusChecked
+                ? "neutral"
+                : offlineReady
+                  ? "offline"
+                  : "working"
+            }
           />
         </View>
 
@@ -172,9 +162,13 @@ export default function StudyScreen() {
             body="Add a PDF or TXT file when you are ready. LearnGuide will use it to create grounded lessons, quizzes, chat, and your next study action."
             icon="book-outline"
             onAction={openImportMaterial}
-            secondaryLabel={offlineReady ? undefined : "Download offline AI"}
+            secondaryLabel={
+              !modelStatusChecked || offlineReady
+                ? undefined
+                : "Download offline AI"
+            }
             onSecondary={
-              offlineReady ? undefined : openOfflineAi
+              !modelStatusChecked || offlineReady ? undefined : openOfflineAi
             }
             title="Your next study action will appear here"
           />

@@ -3,8 +3,9 @@ import {
   BottomSheetView,
 } from '@expo/ui/community/bottom-sheet';
 import { useRouter } from 'expo-router';
+import { useRef } from 'react';
 
-import { ImportMaterialContent } from '@/screens/import-material-screen';
+import { ImportMaterialContent } from '@/components/materials/import-material-content';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -12,6 +13,7 @@ export function ImportMaterialSheet() {
   const router = useRouter();
   const theme = useTheme();
   const close = useAppOverlayStore((state) => state.closeImportMaterial);
+  const navigationPending = useRef(false);
 
   return (
     <BottomSheet
@@ -26,8 +28,11 @@ export function ImportMaterialSheet() {
         style={{ backgroundColor: theme.surfaceElevated, flex: 1 }}
       >
         <ImportMaterialContent
-          onClose={close}
           onImported={(materialId) => {
+            if (navigationPending.current) {
+              return;
+            }
+            navigationPending.current = true;
             close();
             requestAnimationFrame(() => {
               router.navigate({
@@ -36,7 +41,6 @@ export function ImportMaterialSheet() {
               });
             });
           }}
-          presentation="sheet"
         />
       </BottomSheetView>
     </BottomSheet>

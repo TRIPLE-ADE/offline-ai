@@ -1,10 +1,16 @@
+import { Redirect } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 
 import { Fonts } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { hasCompletedOnboarding } from "@/onboarding/onboarding-state";
 
 export default function TabsLayout() {
   const theme = useTheme();
+
+  if (!hasCompletedOnboarding()) {
+    return <Redirect href="/setup" />;
+  }
 
   return (
     <NativeTabs
@@ -29,7 +35,7 @@ export default function TabsLayout() {
           fontSize: 12,
         },
       }}
-      rippleColor={theme.surfaceSelected}
+      rippleColor="transparent"
       minimizeBehavior="onScrollDown"
       shadowColor={theme.shadow}
       tabBarRespectsIMEInsets

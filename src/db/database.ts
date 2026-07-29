@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { DATABASE_VERSION, INITIAL_SCHEMA_SQL } from '@/db/schema';
+import { initializeLearningOverview } from '@/stores/learning-overview-store';
 
 export const DATABASE_NAME = 'offline-study-coach.db';
 
@@ -28,4 +29,9 @@ export async function migrateDatabase(db: SQLiteDatabase) {
       await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
     });
   }
+
+  // Hydrate the shared read model before SQLiteProvider renders its children.
+  // Screens can then render a stable snapshot instead of issuing their own
+  // focus-time queries and briefly switching through contradictory UI states.
+  await initializeLearningOverview(db);
 }

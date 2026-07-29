@@ -1,13 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { File } from 'expo-file-system';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { StatusBadge } from '@/components/foundation/status-badge';
-import { inspectOfflineResources } from '@/ai/offline-resource-state';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
@@ -16,7 +15,6 @@ import { MaterialRepository } from '@/db/repositories/material-repository';
 import { useTheme } from '@/hooks/use-theme';
 import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import { offlineVectorIndex } from '@/retrieval/offline-vector-index';
-import { useRuntimeStore } from '@/stores/runtime-store';
 import { useModelInstallationStore } from '@/ai/model-installation-state';
 import {
   showActionSheet,
@@ -28,6 +26,10 @@ import {
   type AppearancePreference,
 } from '@/theme/appearance';
 import { toast } from '@/utils/app-toast';
+import {
+  refreshLearningOverview,
+  useLearningOverviewStore,
+} from '@/stores/learning-overview-store';
 
 const APPEARANCE_OPTIONS: { label: string; value: AppearancePreference }[] = [
   { label: 'System', value: 'system' },
@@ -37,8 +39,15 @@ const APPEARANCE_OPTIONS: { label: string; value: AppearancePreference }[] = [
 
 function offlineAiCopy(
   phase: ReturnType<typeof useModelInstallationStore.getState>['phase'],
+  verified: boolean,
   installed: boolean
 ) {
+  if (!verified) {
+    return {
+      badge: 'Checking resources',
+      description: 'Confirming the private AI resources stored on this device.',
+    };
+  }
   if (installed) {
     return {
       badge: 'Ready offline',
@@ -105,37 +114,36 @@ export default function SettingsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
-  const generation = useRuntimeStore((state) => state.generation);
-  const embedding = useRuntimeStore((state) => state.embedding);
   const modelInstallationPhase = useModelInstallationStore((state) => state.phase);
+  const modelInstallationVerification = useModelInstallationStore(
+    (state) => state.verification
+  );
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
-  const ready = isOfflineAiInstalled(generation, embedding);
-  const resourceCopy = offlineAiCopy(modelInstallationPhase, ready);
-  const [materialStorage, setMaterialStorage] = useState('Calculating…');
+  const resourceCheckComplete = modelInstallationVerification === 'complete';
+  const ready = isOfflineAiInstalled(
+    modelInstallationPhase,
+    modelInstallationVerification
+  );
+  const resourceCopy = offlineAiCopy(
+    modelInstallationPhase,
+    resourceCheckComplete,
+    ready
+  );
+  const materials = useLearningOverviewStore((state) => state.materials);
+  const materialStorage = useMemo(() => {
+    const bytes = materials.reduce(
+      (sum, item) => sum + (item.material.fileSize ?? 0),
+      0
+    );
+    return bytes >= 1_048_576
+      ? `${(bytes / 1_048_576).toFixed(1)} MB across ${materials.length} material${materials.length === 1 ? '' : 's'}`
+      : `${Math.round(bytes / 1024)} KB across ${materials.length} material${materials.length === 1 ? '' : 's'}`;
+  }, [materials]);
   const appearance = useAppearanceStore((state) => state.preference);
 
   const updateAppearance = (preference: AppearancePreference) => {
     setAppearancePreference(preference);
   };
-
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      void inspectOfflineResources().catch(() => null);
-      void new MaterialRepository(db).list().then((materials) => {
-        if (!active) return;
-        const bytes = materials.reduce((sum, material) => sum + (material.fileSize ?? 0), 0);
-        setMaterialStorage(
-          bytes >= 1_048_576
-            ? `${(bytes / 1_048_576).toFixed(1)} MB across ${materials.length} material${materials.length === 1 ? '' : 's'}`
-            : `${Math.round(bytes / 1024)} KB across ${materials.length} material${materials.length === 1 ? '' : 's'}`
-        );
-      });
-      return () => {
-        active = false;
-      };
-    }, [db])
-  );
 
   const clearChat = () =>
     showActionSheet({
@@ -169,6 +177,7 @@ export default function SettingsScreen() {
             if (file.exists) file.delete();
           }
           await new MaterialRepository(db).deleteAll();
+          await refreshLearningOverview();
           router.replace('/home');
           toast.success('Local learning data deleted');
         })().catch(() => toast.error('Local learning data could not be deleted'));
@@ -214,15 +223,17 @@ export default function SettingsScreen() {
               label={resourceCopy.badge}
               tone={ready ? 'offline' : 'working'}
             />
-            <Pressable
-              accessibilityRole="button"
-              onPress={openOfflineAi}
-              style={styles.manageAction}>
-              <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                {ready ? 'Manage offline resources' : 'Download or retry'}
-              </ThemedText>
-              <Ionicons name="arrow-forward" color={theme.primary} size={18} />
-            </Pressable>
+            {resourceCheckComplete ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={openOfflineAi}
+                style={styles.manageAction}>
+                <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                  {ready ? 'Manage offline resources' : 'Download or retry'}
+                </ThemedText>
+                <Ionicons name="arrow-forward" color={theme.primary} size={18} />
+              </Pressable>
+            ) : null}
           </View>
 
           <View

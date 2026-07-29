@@ -6,14 +6,22 @@ import {
 } from "expo-router/react-navigation";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
-import { SQLiteProvider } from "expo-sqlite";
+import {
+  addDatabaseChangeListener,
+  SQLiteProvider,
+  useSQLiteContext,
+} from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { initializeExecutorch } from "@/ai/initialize-executorch";
+import {
+  failModelInstallationVerification,
+  useModelInstallationStore,
+} from "@/ai/model-installation-state";
 import { inspectOfflineResources } from "@/ai/offline-resource-state";
 import { AppOverlays } from "@/components/app-overlays";
 import { AppToaster } from "@/components/foundation/app-toaster";
@@ -24,10 +32,51 @@ import {
   initializeAppearancePreference,
   useResolvedAppearance,
 } from "@/theme/appearance";
+import { refreshLearningOverview } from "@/stores/learning-overview-store";
 
 void SplashScreen.preventAutoHideAsync();
 initializeExecutorch();
 initializeAppearancePreference();
+
+const RESOURCE_VERIFICATION_TIMEOUT_MS = 2_000;
+const LEARNING_OVERVIEW_TABLES = new Set([
+  "materials",
+  "quiz_attempts",
+  "topics",
+]);
+
+function DatabaseChangeSync() {
+  const db = useSQLiteContext();
+
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const subscription = addDatabaseChangeListener((event) => {
+      if (
+        event.databaseFilePath !== db.databasePath ||
+        !LEARNING_OVERVIEW_TABLES.has(event.tableName)
+      ) {
+        return;
+      }
+
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void refreshLearningOverview();
+      }, 50);
+    });
+
+    return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      subscription.remove();
+    };
+  }, [db]);
+
+  return null;
+}
 
 function AppNavigator() {
   const theme = useTheme();
@@ -49,19 +98,22 @@ function AppNavigator() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
+      <DatabaseChangeSync />
     </>
   );
 }
 
 export default function RootLayout() {
   const appearance = useResolvedAppearance();
+  const resourceCheckComplete = useModelInstallationStore(
+    (state) => state.verification === "complete",
+  );
   const [fontsLoaded] = useFonts({
     [Fonts.regular]: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
     [Fonts.medium]: require("@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf"),
     [Fonts.semibold]: require("@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf"),
     [Fonts.bold]: require("@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"),
   });
-  const [resourcesInspected, setResourcesInspected] = useState(false);
   const isDark = appearance === "dark";
   const palette = isDark ? Colors.dark : Colors.light;
   const navigationTheme = {
@@ -77,24 +129,32 @@ export default function RootLayout() {
   };
 
   useEffect(() => {
-    if (fontsLoaded && resourcesInspected) {
+    if (fontsLoaded && resourceCheckComplete) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, resourcesInspected]);
+  }, [fontsLoaded, resourceCheckComplete]);
 
   useEffect(() => {
-    let active = true;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        failModelInstallationVerification();
+      }
+    }, RESOURCE_VERIFICATION_TIMEOUT_MS);
+
     void inspectOfflineResources()
-      .catch(() => undefined)
+      .catch(() => {
+        failModelInstallationVerification();
+      })
       .finally(() => {
-        if (active) setResourcesInspected(true);
+        settled = true;
+        clearTimeout(timeout);
       });
-    return () => {
-      active = false;
-    };
+
+    return () => clearTimeout(timeout);
   }, []);
 
-  if (!fontsLoaded || !resourcesInspected) {
+  if (!fontsLoaded || !resourceCheckComplete) {
     return null;
   }
 
@@ -108,6 +168,7 @@ export default function RootLayout() {
             <SQLiteProvider
               databaseName={DATABASE_NAME}
               onInit={migrateDatabase}
+              options={{ enableChangeListener: true }}
             >
               <AppNavigator />
               <AppOverlays />

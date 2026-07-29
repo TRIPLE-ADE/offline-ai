@@ -1,7 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { ProgressBar } from "@/components/foundation/progress-bar";
@@ -9,52 +7,16 @@ import { StatePanel } from "@/components/foundation/state-panel";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius, Spacing } from "@/constants/theme";
-import { MaterialRepository } from "@/db/repositories/material-repository";
-import { QuizAttemptRepository } from "@/db/repositories/quiz-attempt-repository";
-import { TopicRepository } from "@/db/repositories/topic-repository";
-import type { Material, QuizAttempt, Topic } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
-
-type ProgressMaterial = { material: Material; topics: Topic[] };
+import { useLearningOverviewStore } from "@/stores/learning-overview-store";
 
 export default function ProgressScreen() {
-  const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
-  const [materials, setMaterials] = useState<ProgressMaterial[]>([]);
-  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      setLoading(true);
-      void Promise.all([
-        new MaterialRepository(db).list().then((rows) =>
-          Promise.all(
-            rows.map(async (material) => ({
-              material,
-              topics: await new TopicRepository(db).listForMaterial(
-                material.id,
-              ),
-            })),
-          ),
-        ),
-        new QuizAttemptRepository(db).listRecent(6),
-      ])
-        .then(([nextMaterials, nextAttempts]) => {
-          if (!active) return;
-          setMaterials(nextMaterials);
-          setAttempts(nextAttempts);
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-      return () => {
-        active = false;
-      };
-    }, [db]),
-  );
+  const materials = useLearningOverviewStore((state) => state.materials);
+  const attempts = useLearningOverviewStore((state) => state.attempts);
+  const overviewStatus = useLearningOverviewStore((state) => state.status);
+  const loading = overviewStatus === "idle" || overviewStatus === "loading";
 
   const allTopics = materials.flatMap((item) => item.topics);
   const completed = allTopics.filter(

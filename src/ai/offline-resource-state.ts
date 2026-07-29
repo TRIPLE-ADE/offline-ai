@@ -1,17 +1,17 @@
 import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
-import { models } from 'react-native-executorch';
+import { models, ResourceFetcherUtils } from 'react-native-executorch';
 
-import { reconcileModelInstallationState } from '@/ai/model-installation-state';
+import {
+  completeModelInstallationVerification,
+  reconcileModelInstallationState,
+} from '@/ai/model-installation-state';
+import { hasEveryDownloadedResource } from '@/ai/offline-resource-files';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
 type ResourceGroups = {
   embedding: string[];
   generation: string[];
 };
-
-function filename(source: string) {
-  return source.split('/').pop()?.split('?')[0] ?? source;
-}
 
 export function getOfflineResourceGroups(): ResourceGroups {
   const embedding = models.text_embedding.all_minilm_l6_v2();
@@ -37,23 +37,41 @@ export async function inspectOfflineResources() {
     // The resource directory is created lazily on the first download.
   }
 
-  const downloadedNames = new Set(downloaded.map(filename));
-  const hasEveryResource = (sources: string[]) =>
-    sources.every((source) => downloadedNames.has(filename(source)));
-  const embeddingInstalled = hasEveryResource(groups.embedding);
-  const generationInstalled = hasEveryResource(groups.generation);
+  const embeddingInstalled = hasEveryDownloadedResource(
+    downloaded,
+    groups.embedding,
+    ResourceFetcherUtils.getFilenameFromUri
+  );
+  const generationInstalled = hasEveryDownloadedResource(
+    downloaded,
+    groups.generation,
+    ResourceFetcherUtils.getFilenameFromUri
+  );
 
   const store = useRuntimeStore.getState();
   if (embeddingInstalled && store.embedding.phase !== 'ready') {
     store.setEmbedding({ phase: 'downloaded', progress: 1, error: null });
+  } else if (!embeddingInstalled && store.embedding.phase === 'downloaded') {
+    store.setEmbedding({
+      phase: 'not_downloaded',
+      progress: 0,
+      error: null,
+    });
   }
   if (generationInstalled && store.generation.phase !== 'ready') {
     store.setGeneration({ phase: 'downloaded', progress: 1, error: null });
+  } else if (!generationInstalled && store.generation.phase === 'downloaded') {
+    store.setGeneration({
+      phase: 'not_downloaded',
+      progress: 0,
+      error: null,
+    });
   }
 
   const installation = reconcileModelInstallationState(
     embeddingInstalled && generationInstalled
   );
+  completeModelInstallationVerification();
 
   return { embeddingInstalled, generationInstalled, installation };
 }

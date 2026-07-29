@@ -1,27 +1,34 @@
 import { useCallback } from 'react';
 
+import {
+  useModelInstallationStore,
+  type ModelInstallationPhase,
+  type ModelInstallationVerification,
+} from '@/ai/model-installation-state';
 import { evaluateLearningFeatureAccess } from '@/onboarding/first-run-policy';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
-import { useRuntimeStore, type RuntimeState } from '@/stores/runtime-store';
 
 export function isOfflineAiInstalled(
-  generation: RuntimeState,
-  embedding: RuntimeState
+  phase: ModelInstallationPhase,
+  verification: ModelInstallationVerification
 ) {
-  const installed = (state: RuntimeState) =>
-    state.phase === 'downloaded' || state.phase === 'ready';
-  return installed(generation) && installed(embedding);
+  return verification === 'complete' && phase === 'ready';
 }
 
 export function useLearningFeatureAccess() {
-  const generation = useRuntimeStore((state) => state.generation);
-  const embedding = useRuntimeStore((state) => state.embedding);
+  const installationPhase = useModelInstallationStore((state) => state.phase);
+  const installationVerification = useModelInstallationStore(
+    (state) => state.verification
+  );
   const openImportMaterial = useAppOverlayStore(
     (state) => state.openImportMaterial
   );
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
   const showActionSheet = useAppOverlayStore((state) => state.showActionSheet);
-  const modelInstalled = isOfflineAiInstalled(generation, embedding);
+  const modelInstalled = isOfflineAiInstalled(
+    installationPhase,
+    installationVerification
+  );
 
   const ensureAccess = useCallback(
     ({

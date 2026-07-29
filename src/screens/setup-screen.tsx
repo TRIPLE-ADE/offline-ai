@@ -41,6 +41,7 @@ import { Brand } from '@/constants/brand';
 import { Radius, Spacing } from '@/constants/theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import {
   completeOnboarding,
   getOnboardingStep,
@@ -169,7 +170,10 @@ export default function SetupScreen() {
   const displayedInstallationPhase =
     previewStep === 'installing' ? 'installing' : installationPhase;
 
-  const allInstalled = isInstalled(generation) && isInstalled(embedding);
+  const allInstalled = isOfflineAiInstalled(
+    modelInstallation.phase,
+    modelInstallation.verification
+  );
   const connected = network.isConnected === true && network.isInternetReachable !== false;
   const readiness = evaluateReadiness(
     {
@@ -203,8 +207,15 @@ export default function SetupScreen() {
 
   const finishOnboarding = useCallback(
     (reason: OnboardingCompletionReason) => {
+      if (completionReason.current) {
+        return;
+      }
       completionReason.current = reason;
-      if (reason === 'model_skipped' && !allInstalled) {
+      const installationActive =
+        installationPromise.current !== null ||
+        modelInstallation.phase === 'downloading' ||
+        modelInstallation.phase === 'retrying';
+      if (reason === 'model_skipped' && !allInstalled && !installationActive) {
         saveModelInstallationState('skipped');
       }
       if (reason === 'model_installed') {
@@ -213,7 +224,7 @@ export default function SetupScreen() {
       completeOnboarding();
       router.replace(getOnboardingCompletionRoute(reason));
     },
-    [allInstalled, router]
+    [allInstalled, modelInstallation.phase, router]
   );
 
   const refreshReadiness = useCallback(async () => {
@@ -320,6 +331,9 @@ export default function SetupScreen() {
     if (installationPromise.current) {
       return installationPromise.current;
     }
+    if (completionReason.current) {
+      return Promise.resolve();
+    }
     if (allInstalled) {
       finishOnboarding('model_installed');
       return Promise.resolve();
@@ -341,6 +355,10 @@ export default function SetupScreen() {
       try {
         await embeddingRuntime.load();
         await generationRuntime.load();
+        const resources = await inspectOfflineResources();
+        if (!resources.embeddingInstalled || !resources.generationInstalled) {
+          throw new Error('The offline AI resources could not be verified.');
+        }
         setInstallationPhase('preparing');
         if (!reducedMotion) {
           await new Promise((resolve) => setTimeout(resolve, 320));

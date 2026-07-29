@@ -1,12 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MaterialCard } from '@/components/foundation/material-card';
-import { inspectOfflineResources } from '@/ai/offline-resource-state';
 import { useModelInstallationStore } from '@/ai/model-installation-state';
 import { BrandContext } from '@/components/brand/brand-context';
 import { FirstStudyPath } from '@/components/library/first-study-path';
@@ -17,66 +14,25 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { Brand } from '@/constants/brand';
-import { MaterialRepository } from '@/db/repositories/material-repository';
-import { TopicRepository } from '@/db/repositories/topic-repository';
-import type { Material, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
 import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
-import { useRuntimeStore } from '@/stores/runtime-store';
-import { hasCompletedOnboarding } from '@/onboarding/onboarding-state';
-
-type HomeItem = { material: Material; topics: Topic[] };
+import { useLearningOverviewStore } from '@/stores/learning-overview-store';
 
 export default function HomeScreen() {
-  const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
   const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
-  const generation = useRuntimeStore((state) => state.generation);
-  const embedding = useRuntimeStore((state) => state.embedding);
   const modelInstallationPhase = useModelInstallationStore(
     (state) => state.phase
   );
-  const [items, setItems] = useState<HomeItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [onboardingComplete] = useState(hasCompletedOnboarding);
-
-  useEffect(() => {
-    if (!onboardingComplete) {
-      router.replace('/setup');
-    }
-  }, [onboardingComplete, router]);
-
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      setLoading(true);
-      void Promise.all([
-        inspectOfflineResources().catch(() => null),
-        new MaterialRepository(db).list(),
-      ])
-        .then(([, materials]) => materials)
-        .then(async (materials) =>
-          Promise.all(
-            materials.map(async (material) => ({
-              material,
-              topics: await new TopicRepository(db).listForMaterial(material.id),
-            }))
-          )
-        )
-        .then((rows) => {
-          if (active) setItems(rows);
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-      return () => {
-        active = false;
-      };
-    }, [db])
+  const modelInstallationVerification = useModelInstallationStore(
+    (state) => state.verification
   );
+  const items = useLearningOverviewStore((state) => state.materials);
+  const overviewStatus = useLearningOverviewStore((state) => state.status);
+  const loading = overviewStatus === 'idle' || overviewStatus === 'loading';
 
   const current = items
     .flatMap(({ material, topics }) =>
@@ -90,15 +46,15 @@ export default function HomeScreen() {
     (sum, item) => sum + item.topics.filter((topic) => topic.status === 'completed').length,
     0
   );
-  const offlineReady = isOfflineAiInstalled(generation, embedding);
+  const modelStatusChecked = modelInstallationVerification === 'complete';
+  const offlineReady = isOfflineAiInstalled(
+    modelInstallationPhase,
+    modelInstallationVerification
+  );
   const modelActionLabel =
     modelInstallationPhase === 'failed'
       ? 'Retry offline AI'
       : 'Download offline AI';
-
-  if (!onboardingComplete) {
-    return <ThemedView style={styles.container} />;
-  }
 
   return (
     <ThemedView style={styles.container}>
@@ -113,10 +69,22 @@ export default function HomeScreen() {
 
           <View style={styles.statusRow}>
             <StatusBadge
-              label={offlineReady ? 'Offline AI ready' : 'AI available when you’re ready'}
-              tone={offlineReady ? 'offline' : 'working'}
+              label={
+                !modelStatusChecked
+                  ? 'Checking offline AI…'
+                  : offlineReady
+                    ? 'Offline AI ready'
+                    : 'AI available when you’re ready'
+              }
+              tone={
+                !modelStatusChecked
+                  ? 'neutral'
+                  : offlineReady
+                    ? 'offline'
+                    : 'working'
+              }
             />
-            {!offlineReady ? (
+            {modelStatusChecked && !offlineReady ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={openOfflineAi}
@@ -206,7 +174,7 @@ export default function HomeScreen() {
               downloadAiLabel={modelActionLabel}
               onImport={openImportMaterial}
               onDownloadAi={
-                offlineReady ? undefined : openOfflineAi
+                !modelStatusChecked || offlineReady ? undefined : openOfflineAi
               }
             />
           ) : (

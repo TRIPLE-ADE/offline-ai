@@ -3,6 +3,7 @@ import {
   BottomSheet,
   BottomSheetView,
 } from '@expo/ui/community/bottom-sheet';
+import { useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { PrimaryButton } from '@/components/foundation/primary-button';
@@ -15,12 +16,23 @@ export function ActionSheet() {
   const theme = useTheme();
   const request = useAppOverlayStore((state) => state.actionSheet);
   const close = useAppOverlayStore((state) => state.closeActionSheet);
+  const confirming = useRef(false);
 
   if (!request) return null;
 
   const confirm = () => {
+    if (confirming.current) {
+      return;
+    }
+    confirming.current = true;
     close();
-    requestAnimationFrame(request.onAction);
+    requestAnimationFrame(() => {
+      try {
+        request.onAction();
+      } finally {
+        confirming.current = false;
+      }
+    });
   };
 
   return (

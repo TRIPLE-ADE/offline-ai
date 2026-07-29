@@ -4,12 +4,8 @@ import {
   BottomSheetView,
 } from '@expo/ui/community/bottom-sheet';
 import { useKeepAwake } from 'expo-keep-awake';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { useCallback, useMemo, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { embeddingRuntime } from '@/ai/embedding-runtime';
 import { generationRuntime } from '@/ai/generation-runtime';
@@ -42,9 +38,15 @@ export function OfflineAiSheet() {
   const embedding = useRuntimeStore((state) => state.embedding);
   const installationPhase = useModelInstallationStore((state) => state.phase);
   const installationMessage = useModelInstallationStore((state) => state.message);
-  const [checking, setChecking] = useState(true);
+  const installationVerification = useModelInstallationStore(
+    (state) => state.verification
+  );
   const installPromise = useRef<Promise<void> | null>(null);
-  const installed = isOfflineAiInstalled(generation, embedding);
+  const checking = installationVerification !== 'complete';
+  const installed = isOfflineAiInstalled(
+    installationPhase,
+    installationVerification
+  );
   const installing =
     installationPhase === 'downloading' ||
     installationPhase === 'retrying' ||
@@ -63,18 +65,6 @@ export function OfflineAiSheet() {
     [embedding.progress, generation.progress, installed]
   );
 
-  useEffect(() => {
-    let active = true;
-    void inspectOfflineResources()
-      .catch(() => null)
-      .finally(() => {
-        if (active) setChecking(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const install = useCallback(() => {
     if (installPromise.current) {
       return installPromise.current;
@@ -90,8 +80,11 @@ export function OfflineAiSheet() {
     const work = embeddingRuntime
       .load()
       .then(() => generationRuntime.load())
-      .then(() => {
-        saveModelInstallationState('ready');
+      .then(() => inspectOfflineResources())
+      .then(({ embeddingInstalled, generationInstalled }) => {
+        if (!embeddingInstalled || !generationInstalled) {
+          throw new Error('The offline AI resources could not be verified.');
+        }
         toast.success('Offline AI is ready', {
           description: 'Lessons, quizzes, summaries, and chat can now run privately.',
         });

@@ -14,6 +14,8 @@ export type ModelInstallationState = {
   updatedAt: string;
 };
 
+export type ModelInstallationVerification = 'pending' | 'complete';
+
 const MODEL_INSTALLATION_STATE = new File(
   Paths.document,
   'learn-guide-model-installation-v1.json'
@@ -64,12 +66,14 @@ function readPersistedState(): ModelInstallationState {
 }
 
 type ModelInstallationStore = ModelInstallationState & {
+  verification: ModelInstallationVerification;
   setState: (state: ModelInstallationState) => void;
 };
 
 export const useModelInstallationStore = create<ModelInstallationStore>(
   (set) => ({
     ...readPersistedState(),
+    verification: 'pending',
     setState: (state) => set(state),
   })
 );
@@ -95,6 +99,28 @@ export function saveModelInstallationState(
   MODEL_INSTALLATION_STATE.write(JSON.stringify(state));
   useModelInstallationStore.getState().setState(state);
   return state;
+}
+
+export function completeModelInstallationVerification() {
+  useModelInstallationStore.setState({ verification: 'complete' });
+}
+
+export function failModelInstallationVerification() {
+  const current = getModelInstallationState();
+  const installationCouldBeIncomplete =
+    current.phase === 'ready' ||
+    current.phase === 'downloading' ||
+    current.phase === 'retrying';
+
+  useModelInstallationStore.setState({
+    ...current,
+    message: installationCouldBeIncomplete
+      ? 'The offline AI resources could not be checked. Retry from Settings when you are ready.'
+      : current.message,
+    phase: installationCouldBeIncomplete ? 'failed' : current.phase,
+    updatedAt: new Date().toISOString(),
+    verification: 'complete',
+  });
 }
 
 export function reconcileModelInstallationState(resourcesInstalled: boolean) {
