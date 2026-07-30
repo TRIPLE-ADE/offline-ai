@@ -70,8 +70,8 @@ class MaterialChatService {
             question,
             lease,
             {
-              maxPassages: 4,
-              maxContextCharacters: 4_200,
+              maxPassages: 3,
+              maxContextCharacters: 2_400,
               minSimilarity: 0.2,
             }
           );

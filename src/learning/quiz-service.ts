@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { generationRuntime } from '@/ai/generation-runtime';
 import { runtimeCoordinator } from '@/ai/runtime-coordinator';
 import { ArtifactRepository } from '@/db/repositories/artifact-repository';
+import { MaterialChunkRepository } from '@/db/repositories/material-chunk-repository';
 import { QuizAttemptRepository } from '@/db/repositories/quiz-attempt-repository';
 import { TopicRepository } from '@/db/repositories/topic-repository';
 import {
@@ -16,10 +17,18 @@ import {
   type QuizArtifact,
 } from '@/learning/schemas';
 import { generateValidatedObject } from '@/learning/structured-generation';
-import { buildGroundedContext } from '@/retrieval/context-builder';
+import { buildTopicGroundedContext } from '@/retrieval/topic-context-builder';
 
 const PROMPT_VERSION = 'grounded-quiz-v1';
 const MODEL_VERSION = 'gemma-4-e2b';
+
+export type QuizGenerationStage =
+  | 'loading-sources'
+  | 'loading-model'
+  | 'generating'
+  | 'saving';
+
+type QuizGenerationProgress = (stage: QuizGenerationStage) => void;
 
 class QuizService {
   async getCached(
@@ -42,7 +51,11 @@ class QuizService {
     return parsed.success ? parsed.data : null;
   }
 
-  async generate(db: SQLiteDatabase, topicId: string): Promise<QuizArtifact> {
+  async generate(
+    db: SQLiteDatabase,
+    topicId: string,
+    onProgress?: QuizGenerationProgress
+  ): Promise<QuizArtifact> {
     const topic = await new TopicRepository(db).getById(topicId);
     if (!topic) {
       throw new Error('Topic not found.');
@@ -55,14 +68,18 @@ class QuizService {
         interrupt: () => generationRuntime.interrupt(),
       },
       async (lease) => {
-        const grounded = await buildGroundedContext(
-          topic.materialId,
-          `${topic.title}. Definitions, examples, distinctions, and common mistakes. ${topic.summary}`,
-          lease,
+        const startedAt = Date.now();
+        onProgress?.('loading-sources');
+        const chunks = await new MaterialChunkRepository(
+          db
+        ).listByIdsForMaterial(topic.materialId, topic.sourceChunkIds);
+        lease.assertActive();
+        const grounded = buildTopicGroundedContext(
+          chunks,
+          `${topic.title}. ${topic.summary}`,
           {
-            maxPassages: 4,
-            maxContextCharacters: 4_800,
-            minSimilarity: 0.15,
+            maxPassages: 3,
+            maxContextCharacters: 1_600,
           }
         );
         if (grounded.passages.length === 0) {
@@ -71,6 +88,12 @@ class QuizService {
           );
         }
 
+        const sourcesReadyAt = Date.now();
+        onProgress?.('loading-model');
+        await generationRuntime.load();
+        lease.assertActive();
+        const modelReadyAt = Date.now();
+        onProgress?.('generating');
         const generated = await generateValidatedObject(
           [
             {
@@ -83,6 +106,11 @@ class QuizService {
               content: `Create exactly five multiple-choice questions about "${topic.title}".
 Each must have four plausible options, exactly one correct option, a grounded explanation, a concept label, and one Source label from the context.
 Use zero-based correctOptionIndex from 0 to 3.
+Keep the assessment concise:
+- question: no more than 18 words
+- each option: no more than 8 words
+- explanation: no more than 20 words
+- concept: no more than 3 words
 
 Required JSON:
 {"questions":[
@@ -101,9 +129,14 @@ ${grounded.context}`,
           ],
           modelQuizSchema,
           'Repair this quiz JSON. It must contain exactly five questions, four options per question, one zero-based correctOptionIndex, explanation, sourceLabel, and concept.',
-          lease
+          lease,
+          {
+            timeoutMs: 240_000,
+            stallTimeoutMs: 90_000,
+          }
         );
 
+        const generatedAt = Date.now();
         const citations = resolveCitations(
           generated.questions.map((question) => question.sourceLabel),
           grounded.passages
@@ -125,6 +158,7 @@ ${grounded.context}`,
           citations,
         });
         lease.assertActive();
+        onProgress?.('saving');
         await new ArtifactRepository(db).create({
           materialId: topic.materialId,
           topicId,
@@ -133,6 +167,20 @@ ${grounded.context}`,
           promptVersion: PROMPT_VERSION,
           modelVersion: MODEL_VERSION,
         });
+        if (__DEV__) {
+          console.info('Quiz generation timing', {
+            totalMs: Date.now() - startedAt,
+            sourceLoadMs: sourcesReadyAt - startedAt,
+            modelLoadMs: modelReadyAt - sourcesReadyAt,
+            inferenceMs: generatedAt - modelReadyAt,
+            saveMs: Date.now() - generatedAt,
+            sourcePassages: grounded.passages.length,
+            sourceCharacters: grounded.passages.reduce(
+              (total, passage) => total + passage.content.length,
+              0
+            ),
+          });
+        }
         return quiz;
       }
     );

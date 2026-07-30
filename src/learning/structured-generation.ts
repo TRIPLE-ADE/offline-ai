@@ -7,6 +7,11 @@ import type { z } from 'zod';
 import { generationRuntime } from '@/ai/generation-runtime';
 import type { AiOperationLease } from '@/ai/runtime-coordinator';
 
+type StructuredGenerationOptions = {
+  timeoutMs?: number;
+  stallTimeoutMs?: number;
+};
+
 export function extractJsonObject(text: string): unknown {
   const withoutFence = text
     .trim()
@@ -66,7 +71,8 @@ export async function generateValidatedObject<T>(
   messages: Message[],
   schema: z.ZodType<T>,
   _repairDescription: string,
-  lease: AiOperationLease
+  lease: AiOperationLease,
+  options: StructuredGenerationOptions = {}
 ): Promise<T> {
   let streamedOutput = '';
   let requestedEarlyStop = false;
@@ -80,7 +86,10 @@ export async function generateValidatedObject<T>(
         generationRuntime.interrupt();
       }
     },
-    { timeoutMs: 90_000 }
+    {
+      timeoutMs: options.timeoutMs ?? 180_000,
+      stallTimeoutMs: options.stallTimeoutMs ?? 90_000,
+    }
   );
   const candidate = hasCompleteJsonObject(streamedOutput)
     ? streamedOutput

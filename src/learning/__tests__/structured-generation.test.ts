@@ -65,6 +65,12 @@ describe('structured generation', () => {
     ).resolves.toEqual({ value: 'grounded' });
 
     expect(mockGenerate).toHaveBeenCalledTimes(1);
+    expect(mockGenerate).toHaveBeenCalledWith(
+      [{ role: 'user', content: 'Return JSON.' }],
+      lease,
+      expect.any(Function),
+      { timeoutMs: 180_000, stallTimeoutMs: 90_000 }
+    );
     expect(mockInterrupt).toHaveBeenCalledTimes(1);
     expect(mockFixAndValidate).not.toHaveBeenCalled();
   });

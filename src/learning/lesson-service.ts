@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { generationRuntime } from '@/ai/generation-runtime';
 import { runtimeCoordinator } from '@/ai/runtime-coordinator';
 import { ArtifactRepository } from '@/db/repositories/artifact-repository';
+import { MaterialChunkRepository } from '@/db/repositories/material-chunk-repository';
 import { TopicRepository } from '@/db/repositories/topic-repository';
 import {
   lessonArtifactSchema,
@@ -11,10 +12,18 @@ import {
 } from '@/learning/schemas';
 import { resolveCitations } from '@/learning/citations';
 import { generateValidatedObject } from '@/learning/structured-generation';
-import { buildGroundedContext } from '@/retrieval/context-builder';
+import { buildTopicGroundedContext } from '@/retrieval/topic-context-builder';
 
 const PROMPT_VERSION = 'grounded-lesson-v1';
 const MODEL_VERSION = 'gemma-4-e2b';
+
+export type LessonGenerationStage =
+  | 'loading-sources'
+  | 'loading-model'
+  | 'generating'
+  | 'saving';
+
+type LessonGenerationProgress = (stage: LessonGenerationStage) => void;
 
 export class InsufficientSourceError extends Error {
   constructor() {
@@ -43,7 +52,11 @@ class LessonService {
     return parsed.success ? parsed.data : null;
   }
 
-  async generate(db: SQLiteDatabase, topicId: string): Promise<LessonArtifact> {
+  async generate(
+    db: SQLiteDatabase,
+    topicId: string,
+    onProgress?: LessonGenerationProgress
+  ): Promise<LessonArtifact> {
     const topicRepository = new TopicRepository(db);
     const topic = await topicRepository.getById(topicId);
     if (!topic) {
@@ -57,20 +70,30 @@ class LessonService {
         interrupt: () => generationRuntime.interrupt(),
       },
       async (lease) => {
-        const grounded = await buildGroundedContext(
-          topic.materialId,
+        const startedAt = Date.now();
+        onProgress?.('loading-sources');
+        const chunks = await new MaterialChunkRepository(
+          db
+        ).listByIdsForMaterial(topic.materialId, topic.sourceChunkIds);
+        lease.assertActive();
+        const grounded = buildTopicGroundedContext(
+          chunks,
           `${topic.title}. ${topic.summary}`,
-          lease,
           {
-            maxPassages: 4,
-            maxContextCharacters: 4_600,
-            minSimilarity: 0.15,
+            maxPassages: 3,
+            maxContextCharacters: 1_600,
           }
         );
         if (grounded.passages.length === 0) {
           throw new InsufficientSourceError();
         }
 
+        const sourcesReadyAt = Date.now();
+        onProgress?.('loading-model');
+        await generationRuntime.load();
+        lease.assertActive();
+        const modelReadyAt = Date.now();
+        onProgress?.('generating');
         const generated = await generateValidatedObject(
           [
             {
@@ -81,7 +104,13 @@ class LessonService {
             {
               role: 'user',
               content: `Teach the topic "${topic.title}" using only the source context.
-Use clear, simple language without removing important meaning.
+Use clear, simple language without removing important meaning. Keep the lesson focused:
+- objective: one sentence, no more than 18 words
+- explanation: 80–120 words
+- example: 30–50 words
+- keyPoints: exactly 3 concise points, no more than 16 words each
+- commonMistake: no more than 25 words
+- each quick-check question and answer: no more than 15 words
 
 Required JSON:
 {
@@ -105,9 +134,14 @@ ${grounded.context}`,
           ],
           modelLessonSchema,
           'Repair this grounded lesson JSON. Preserve the required fields and cite only Source labels present in the original context.',
-          lease
+          lease,
+          {
+            timeoutMs: 180_000,
+            stallTimeoutMs: 90_000,
+          }
         );
 
+        const generatedAt = Date.now();
         const citations = resolveCitations(
           generated.sourceLabels,
           grounded.passages
@@ -124,6 +158,7 @@ ${grounded.context}`,
           citations,
         });
         lease.assertActive();
+        onProgress?.('saving');
         await new ArtifactRepository(db).create({
           materialId: topic.materialId,
           topicId,
@@ -134,6 +169,20 @@ ${grounded.context}`,
         });
         lease.assertActive();
         await topicRepository.markLearning(topicId);
+        if (__DEV__) {
+          console.info('Lesson generation timing', {
+            totalMs: Date.now() - startedAt,
+            sourceLoadMs: sourcesReadyAt - startedAt,
+            modelLoadMs: modelReadyAt - sourcesReadyAt,
+            inferenceMs: generatedAt - modelReadyAt,
+            saveMs: Date.now() - generatedAt,
+            sourcePassages: grounded.passages.length,
+            sourceCharacters: grounded.passages.reduce(
+              (total, passage) => total + passage.content.length,
+              0
+            ),
+          });
+        }
         return lesson;
       }
     );

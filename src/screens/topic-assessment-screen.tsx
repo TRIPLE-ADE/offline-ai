@@ -26,8 +26,11 @@ import type { StoredCitation, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useLearningFeatureAccess } from '@/hooks/use-learning-feature-access';
 import type { NextRecommendation } from '@/learning/assessment-policy';
+import {
+  quizService,
+  type QuizGenerationStage,
+} from '@/learning/quiz-service';
 import type { QuizArtifact } from '@/learning/schemas';
-import { quizService } from '@/learning/quiz-service';
 import {
   showActionSheet,
   useAppOverlayStore,
@@ -57,6 +60,8 @@ export default function TopicQuizScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStage, setGenerationStage] =
+    useState<QuizGenerationStage | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<StoredCitation | null>(null);
@@ -91,8 +96,13 @@ export default function TopicQuizScreen() {
     setResult(null);
     setCurrentIndex(0);
     setIsGenerating(true);
+    setGenerationStage('loading-sources');
     try {
-      const generated = await quizService.generate(db, topicId);
+      const generated = await quizService.generate(
+        db,
+        topicId,
+        setGenerationStage
+      );
       setQuiz(generated);
       setAnswers(Array(generated.questions.length).fill(-1));
     } catch (caught) {
@@ -106,6 +116,7 @@ export default function TopicQuizScreen() {
       }
     } finally {
       setIsGenerating(false);
+      setGenerationStage(null);
     }
   };
 
@@ -206,6 +217,16 @@ export default function TopicQuizScreen() {
   const weakConcepts = result && quiz
     ? [...new Set(quiz.questions.filter((item, index) => answers[index] !== item.correctOptionIndex).map((item) => item.concept))]
     : [];
+  const generationLabel =
+    generation.residency === 'loading'
+      ? `Loading offline AI · ${Math.round(generation.progress * 100)}%`
+      : generationStage === 'loading-sources'
+        ? 'Opening topic sources…'
+        : generationStage === 'loading-model'
+          ? 'Loading offline AI…'
+          : generationStage === 'saving'
+            ? 'Saving questions…'
+            : 'Writing questions…';
 
   return (
     <ThemedView style={styles.container}>
@@ -239,9 +260,7 @@ export default function TopicQuizScreen() {
               disabled={isGenerating}
               label={
                 isGenerating
-                  ? generation.residency === 'loading'
-                    ? `Preparing offline AI · ${Math.round(generation.progress * 100)}%`
-                    : 'Preparing questions…'
+                  ? generationLabel
                   : 'Prepare knowledge check'
               }
               loading={isGenerating}

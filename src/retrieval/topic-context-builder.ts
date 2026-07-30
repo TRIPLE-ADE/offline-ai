@@ -2,8 +2,8 @@ import type { MaterialChunk } from '@/db/types';
 import type { GroundedContext } from '@/retrieval/context-builder';
 import type { GroundedPassage } from '@/retrieval/context-selection';
 
-const DEFAULT_MAX_PASSAGES = 4;
-const DEFAULT_MAX_CONTEXT_CHARACTERS = 3_200;
+export const DEFAULT_TOPIC_MAX_PASSAGES = 3;
+export const DEFAULT_TOPIC_MAX_CONTEXT_CHARACTERS = 1_600;
 
 type TopicContextOptions = {
   maxPassages?: number;
@@ -56,11 +56,11 @@ export function buildTopicGroundedContext(
 ): GroundedContext {
   const maxPassages = Math.max(
     1,
-    options.maxPassages ?? DEFAULT_MAX_PASSAGES
+    options.maxPassages ?? DEFAULT_TOPIC_MAX_PASSAGES
   );
   const maxContextCharacters = Math.max(
     400,
-    options.maxContextCharacters ?? DEFAULT_MAX_CONTEXT_CHARACTERS
+    options.maxContextCharacters ?? DEFAULT_TOPIC_MAX_CONTEXT_CHARACTERS
   );
   const selected = sampleEvenly(chunks, maxPassages);
   const passages: GroundedPassage[] = [];

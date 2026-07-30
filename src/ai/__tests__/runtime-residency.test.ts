@@ -229,6 +229,46 @@ describe('AI runtime residency', () => {
     }
   });
 
+  it('allows slow generation to continue while tokens are still arriving', async () => {
+    jest.useFakeTimers();
+    try {
+      const generation = deferred<string>();
+      let emitToken: (token: string) => void = () => undefined;
+      const module = {
+        configure: jest.fn(),
+        delete: jest.fn(),
+        generate: jest.fn(() => generation.promise),
+        interrupt: jest.fn(),
+        setTokenCallback: jest.fn(
+          ({ tokenCallback }: { tokenCallback: (token: string) => void }) => {
+            emitToken = tokenCallback;
+          }
+        ),
+      };
+      mockLoadGenerationModule.mockResolvedValue(module);
+      const runtime = new GenerationRuntime();
+      await runtime.load();
+
+      const output = runtime.generate(
+        [{ role: 'user', content: 'Generate structured output.' }],
+        activeLease(),
+        undefined,
+        { timeoutMs: 5_000, stallTimeoutMs: 1_000 }
+      );
+      jest.advanceTimersByTime(800);
+      emitToken('progress');
+      jest.advanceTimersByTime(800);
+      expect(module.interrupt).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(201);
+      expect(module.interrupt).toHaveBeenCalledTimes(1);
+      generation.resolve('partial response');
+      await expect(output).rejects.toThrow('stopped making progress');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('keeps load failure retryable', async () => {
     const module = {
       configure: jest.fn(),

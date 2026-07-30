@@ -1,4 +1,8 @@
-import { chunkText, DEFAULT_MAX_CHUNK_CHARACTERS } from '@/materials/chunk-text';
+import {
+  chunkText,
+  DEFAULT_MAX_CHUNK_CHARACTERS,
+  DEFAULT_OVERLAP_CHARACTERS,
+} from '@/materials/chunk-text';
 
 declare const __dirname: string;
 
@@ -39,6 +43,8 @@ describe('chunkText', () => {
     expect(first.map((chunk) => chunk.ordinal)).toEqual(
       first.map((_, index) => index)
     );
+    expect(DEFAULT_MAX_CHUNK_CHARACTERS).toBe(700);
+    expect(DEFAULT_OVERLAP_CHARACTERS).toBe(80);
   });
 
   it('preserves the expected evidence and its section provenance', () => {

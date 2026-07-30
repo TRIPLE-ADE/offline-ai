@@ -1,5 +1,9 @@
 import type { MaterialChunk } from '@/db/types';
-import { buildTopicGroundedContext } from '@/retrieval/topic-context-builder';
+import {
+  buildTopicGroundedContext,
+  DEFAULT_TOPIC_MAX_CONTEXT_CHARACTERS,
+  DEFAULT_TOPIC_MAX_PASSAGES,
+} from '@/retrieval/topic-context-builder';
 
 function chunk(id: string, ordinal: number): MaterialChunk {
   return {
@@ -28,6 +32,22 @@ describe('topic source context', () => {
     ]);
     expect(grounded.context).toContain('[Source 1: Section 1]');
     expect(grounded.context).toContain('[Source 3: Section 3]');
+  });
+
+  it('keeps the default topic prompt context small for on-device generation', () => {
+    const chunks = Array.from({ length: 8 }, (_, index) =>
+      chunk(`chunk-${index}`, index)
+    );
+
+    const grounded = buildTopicGroundedContext(chunks, 'Long topic');
+
+    expect(grounded.passages).toHaveLength(DEFAULT_TOPIC_MAX_PASSAGES);
+    expect(
+      grounded.passages.reduce(
+        (total, passage) => total + passage.content.length,
+        0
+      )
+    ).toBeLessThanOrEqual(DEFAULT_TOPIC_MAX_CONTEXT_CHARACTERS);
   });
 
   it('samples long topic spans and enforces the context budget', () => {

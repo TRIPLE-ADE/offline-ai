@@ -27,7 +27,10 @@ import { TopicRepository } from "@/db/repositories/topic-repository";
 import type { StoredCitation, Topic } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
 import { useLearningFeatureAccess } from "@/hooks/use-learning-feature-access";
-import { lessonService } from "@/learning/lesson-service";
+import {
+  lessonService,
+  type LessonGenerationStage,
+} from "@/learning/lesson-service";
 import type { LessonArtifact } from "@/learning/schemas";
 import { useAppOverlayStore } from "@/stores/app-overlay-store";
 import { useRuntimeStore } from "@/stores/runtime-store";
@@ -61,6 +64,8 @@ export default function TopicLessonScreen() {
       topic: null,
     });
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStage, setGenerationStage] =
+    useState<LessonGenerationStage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] =
     useState<StoredCitation | null>(null);
@@ -92,8 +97,13 @@ export default function TopicLessonScreen() {
     }
     setError(null);
     setIsGenerating(true);
+    setGenerationStage("loading-sources");
     try {
-      const generatedLesson = await lessonService.generate(db, topicId);
+      const generatedLesson = await lessonService.generate(
+        db,
+        topicId,
+        setGenerationStage,
+      );
       setTopicLessonState((current) => ({
         ...current,
         lesson: generatedLesson,
@@ -110,8 +120,20 @@ export default function TopicLessonScreen() {
       }
     } finally {
       setIsGenerating(false);
+      setGenerationStage(null);
     }
   };
+
+  const generationLabel =
+    generation.residency === "loading"
+      ? `Loading offline AI · ${Math.round(generation.progress * 100)}%`
+      : generationStage === "loading-sources"
+        ? "Opening topic sources…"
+        : generationStage === "loading-model"
+          ? "Loading offline AI…"
+          : generationStage === "saving"
+            ? "Saving lesson…"
+            : "Writing your lesson…";
 
   if (loadedTopicId !== topicId) {
     return (
@@ -177,9 +199,7 @@ export default function TopicLessonScreen() {
               disabled={isGenerating}
               label={
                 isGenerating
-                  ? generation.residency === "loading"
-                    ? `Preparing offline AI · ${Math.round(generation.progress * 100)}%`
-                    : "Generating your lesson…"
+                  ? generationLabel
                   : error
                     ? "Retry lesson"
                     : "Generate lesson offline"

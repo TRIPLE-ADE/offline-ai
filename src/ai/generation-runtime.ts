@@ -11,9 +11,14 @@ import { useRuntimeStore } from '@/stores/runtime-store';
 const DEFAULT_GENERATION_TIMEOUT_MS = 120_000;
 
 export class AiGenerationTimeoutError extends Error {
-  constructor(timeoutMs: number) {
+  constructor(
+    timeoutMs: number,
+    reason: 'deadline' | 'stalled' = 'deadline'
+  ) {
     super(
-      `The local model did not finish within ${Math.round(timeoutMs / 1_000)} seconds. It was stopped to protect device performance.`
+      reason === 'stalled'
+        ? `The local model stopped making progress for ${Math.round(timeoutMs / 1_000)} seconds. It was stopped to protect device performance.`
+        : `The local model did not finish within ${Math.round(timeoutMs / 1_000)} seconds. It was stopped to protect device performance.`
     );
     this.name = 'AiGenerationTimeoutError';
   }
@@ -21,6 +26,7 @@ export class AiGenerationTimeoutError extends Error {
 
 type GenerationOptions = {
   timeoutMs?: number;
+  stallTimeoutMs?: number;
 };
 
 export class GenerationRuntime {
@@ -73,6 +79,9 @@ export class GenerationRuntime {
         );
         module.configure({
           generationConfig: {
+            temperature: 0.2,
+            topP: 0.9,
+            repetitionPenalty: 1.05,
             outputTokenBatchSize: 8,
             batchTimeInterval: 100,
           },
@@ -118,7 +127,13 @@ export class GenerationRuntime {
     this.isGenerating = true;
 
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    let timedOut = false;
+    let stallTimeout: ReturnType<typeof setTimeout> | null = null;
+    const timeoutState: {
+      failure: {
+        durationMs: number;
+        reason: 'deadline' | 'stalled';
+      } | null;
+    } = { failure: null };
 
     try {
       if (!this.module) {
@@ -133,30 +148,62 @@ export class GenerationRuntime {
         activity: 'running',
         error: null,
       });
+      const timeoutMs = options.timeoutMs ?? DEFAULT_GENERATION_TIMEOUT_MS;
+      const stallTimeoutMs = options.stallTimeoutMs;
+      const requestTimeout = (
+        reason: 'deadline' | 'stalled',
+        durationMs: number
+      ) => {
+        if (timeoutState.failure) {
+          return;
+        }
+        timeoutState.failure = { durationMs, reason };
+        const message =
+          reason === 'stalled'
+            ? `This generation stopped making progress for ${Math.round(durationMs / 1_000)} seconds and is being stopped.`
+            : `This generation exceeded ${Math.round(durationMs / 1_000)} seconds and is being stopped to protect device performance.`;
+        useRuntimeStore.getState().setGeneration({ error: message });
+        this.interrupt();
+      };
+      const resetStallTimeout = () => {
+        if (stallTimeout) {
+          clearTimeout(stallTimeout);
+        }
+        if (stallTimeoutMs) {
+          stallTimeout = setTimeout(
+            () => requestTimeout('stalled', stallTimeoutMs),
+            stallTimeoutMs
+          );
+        }
+      };
       this.module.setTokenCallback({
         tokenCallback: (token) => {
           if (lease.isActive()) {
+            resetStallTimeout();
             onToken(token);
           }
         },
       });
-      const timeoutMs = options.timeoutMs ?? DEFAULT_GENERATION_TIMEOUT_MS;
-      timeout = setTimeout(() => {
-        timedOut = true;
-        useRuntimeStore.getState().setGeneration({
-          error: `This generation exceeded ${Math.round(timeoutMs / 1_000)} seconds and is being stopped to protect device performance.`,
-        });
-        this.interrupt();
-      }, timeoutMs);
+      resetStallTimeout();
+      timeout = setTimeout(
+        () => requestTimeout('deadline', timeoutMs),
+        timeoutMs
+      );
       const output = await this.module.generate(messages);
-      if (timedOut) {
-        throw new AiGenerationTimeoutError(timeoutMs);
+      if (timeoutState.failure) {
+        throw new AiGenerationTimeoutError(
+          timeoutState.failure.durationMs,
+          timeoutState.failure.reason
+        );
       }
       lease.assertActive();
       return output;
     } finally {
       if (timeout) {
         clearTimeout(timeout);
+      }
+      if (stallTimeout) {
+        clearTimeout(stallTimeout);
       }
       this.isGenerating = false;
       if (this.module) {

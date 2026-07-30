@@ -1,5 +1,5 @@
-export const DEFAULT_MAX_CHUNK_CHARACTERS = 900;
-export const DEFAULT_OVERLAP_CHARACTERS = 120;
+export const DEFAULT_MAX_CHUNK_CHARACTERS = 700;
+export const DEFAULT_OVERLAP_CHARACTERS = 80;
 
 export type ChunkDraft = {
   ordinal: number;

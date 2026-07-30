@@ -1,4 +1,6 @@
 import {
+  DEFAULT_MAX_CONTEXT_CHARACTERS,
+  DEFAULT_MAX_PASSAGES,
   selectGroundedPassages,
   type RetrievalCandidate,
 } from '@/retrieval/context-selection';
@@ -57,5 +59,25 @@ describe('selectGroundedPassages', () => {
       'chunk-1',
       'chunk-2',
     ]);
+  });
+
+  it('uses a bounded default context suitable for the local model', () => {
+    const selected = selectGroundedPassages(
+      Array.from({ length: 5 }, (_, index) =>
+        result(
+          `chunk-${index + 1}`,
+          String.fromCharCode(97 + index).repeat(900),
+          0.9 - index * 0.05
+        )
+      )
+    );
+
+    expect(selected).toHaveLength(DEFAULT_MAX_PASSAGES - 1);
+    expect(
+      selected.reduce(
+        (total, passage) => total + passage.content.length,
+        0
+      )
+    ).toBeLessThanOrEqual(DEFAULT_MAX_CONTEXT_CHARACTERS);
   });
 });

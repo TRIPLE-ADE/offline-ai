@@ -22,8 +22,8 @@ export type ContextSelectionOptions = {
   minSimilarity?: number;
 };
 
-const DEFAULT_MAX_PASSAGES = 4;
-const DEFAULT_MAX_CONTEXT_CHARACTERS = 3_600;
+export const DEFAULT_MAX_PASSAGES = 3;
+export const DEFAULT_MAX_CONTEXT_CHARACTERS = 2_400;
 const DEFAULT_MIN_SIMILARITY = 0.2;
 
 function optionalNumber(value: unknown) {
