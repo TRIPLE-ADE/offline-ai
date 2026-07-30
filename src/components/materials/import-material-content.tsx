@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useSQLiteContext } from "expo-sqlite";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { PrimaryButton } from "@/components/foundation/primary-button";
@@ -8,9 +8,13 @@ import { StatePanel } from "@/components/foundation/state-panel";
 import { ThemedText } from "@/components/themed-text";
 import { Elevation, Radius, Spacing } from "@/constants/theme";
 import { MaterialRepository } from "@/db/repositories/material-repository";
-import type { CreateMaterialInput } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
-import { importMaterial } from "@/materials/import-material";
+import {
+  commitStagedMaterial,
+  discardStagedMaterial,
+  importMaterial,
+  type StagedMaterialImport,
+} from "@/materials/import-material";
 import { refreshLearningOverview } from "@/stores/learning-overview-store";
 import { toast } from "@/utils/app-toast";
 
@@ -21,20 +25,46 @@ function formatSize(bytes: number | null) {
 }
 
 type ImportMaterialContentProps = {
+  onBusyChange?: (busy: boolean) => void;
   onImported: (materialId: string) => void;
 };
 
 export function ImportMaterialContent({
+  onBusyChange,
   onImported,
 }: ImportMaterialContentProps) {
   const db = useSQLiteContext();
   const theme = useTheme();
-  const [draft, setDraft] = useState<CreateMaterialInput | null>(null);
+  const [draft, setDraft] = useState<StagedMaterialImport | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const draftRef = useRef<StagedMaterialImport | null>(null);
+  const mountedRef = useRef(true);
   const choosingRef = useRef(false);
   const savingRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      discardStagedMaterial(draftRef.current);
+      draftRef.current = null;
+    },
+    []
+  );
+
+  useEffect(() => {
+    onBusyChange?.(choosing || saving);
+  }, [choosing, onBusyChange, saving]);
+
+  const replaceDraft = (next: StagedMaterialImport | null) => {
+    const previous = draftRef.current;
+    draftRef.current = next;
+    setDraft(next);
+    if (previous?.stagedUri !== next?.stagedUri) {
+      discardStagedMaterial(previous);
+    }
+  };
 
   const choose = async () => {
     if (choosingRef.current || savingRef.current) {
@@ -45,8 +75,17 @@ export function ImportMaterialContent({
     setChoosing(true);
     try {
       const selected = await importMaterial();
-      if (selected) setDraft(selected);
+      if (!mountedRef.current) {
+        discardStagedMaterial(selected);
+        return;
+      }
+      if (selected) {
+        replaceDraft(selected);
+      }
     } catch (caught) {
+      if (!mountedRef.current) {
+        return;
+      }
       const message =
         caught instanceof Error
           ? caught.message
@@ -55,7 +94,9 @@ export function ImportMaterialContent({
       toast.error("Could not open this file", { description: message });
     } finally {
       choosingRef.current = false;
-      setChoosing(false);
+      if (mountedRef.current) {
+        setChoosing(false);
+      }
     }
   };
 
@@ -67,13 +108,26 @@ export function ImportMaterialContent({
     setSaving(true);
     setError(null);
     try {
-      const material = await new MaterialRepository(db).create(draft);
+      const material = await commitStagedMaterial(
+        new MaterialRepository(db),
+        draft
+      );
+      draftRef.current = null;
+      if (!mountedRef.current) {
+        return;
+      }
+      setDraft(null);
       await refreshLearningOverview();
       toast.success("Material imported", {
         description: "Your private copy is ready to prepare.",
       });
       onImported(material.id);
     } catch (caught) {
+      draftRef.current = null;
+      if (!mountedRef.current) {
+        return;
+      }
+      setDraft(null);
       const message =
         caught instanceof Error
           ? caught.message
@@ -82,7 +136,9 @@ export function ImportMaterialContent({
       toast.error("Material not saved", { description: message });
     } finally {
       savingRef.current = false;
-      setSaving(false);
+      if (mountedRef.current) {
+        setSaving(false);
+      }
     }
   };
 

@@ -15,7 +15,7 @@ export function AppToaster() {
       duration={5000}
       gap={8}
       offset={16}
-      position="top-center"
+      position="bottom-center"
       richColors={true}
       swipeToDismissDirection="left"
       theme={appearance}

@@ -4,6 +4,7 @@ import type {
   CreateMaterialInput,
   Material,
   MaterialFileType,
+  MaterialSourceFileState,
   MaterialStatus,
 } from '@/db/types';
 
@@ -14,6 +15,7 @@ type MaterialRow = {
   local_uri: string;
   file_type: MaterialFileType;
   file_size: number | null;
+  source_file_state: MaterialSourceFileState;
   status: MaterialStatus;
   status_message: string | null;
   chunk_count: number;
@@ -29,6 +31,7 @@ function mapMaterial(row: MaterialRow): Material {
     localUri: row.local_uri,
     fileType: row.file_type,
     fileSize: row.file_size,
+    sourceFileState: row.source_file_state,
     status: row.status,
     statusMessage: row.status_message,
     chunkCount: row.chunk_count,
@@ -42,36 +45,46 @@ export class MaterialRepository {
 
   async create(input: CreateMaterialInput): Promise<Material> {
     const now = new Date().toISOString();
+    let material: Material | null = null;
 
-    await this.db.runAsync(
-      `INSERT INTO materials (
-        id,
-        title,
-        source_uri,
-        local_uri,
-        file_type,
-        file_size,
-        status,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'imported', ?, ?)`,
-      [
-        input.id,
-        input.title,
-        input.sourceUri,
-        input.localUri,
-        input.fileType,
-        input.fileSize,
-        now,
-        now,
-      ]
-    );
+    await this.db.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync(
+        `INSERT INTO materials (
+          id,
+          title,
+          source_uri,
+          local_uri,
+          file_type,
+          file_size,
+          status,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'imported', ?, ?)`,
+        [
+          input.id,
+          input.title,
+          input.sourceUri,
+          input.localUri,
+          input.fileType,
+          input.fileSize,
+          now,
+          now,
+        ]
+      );
 
-    const material = await this.getById(input.id);
+      const row = await transaction.getFirstAsync<MaterialRow>(
+        'SELECT * FROM materials WHERE id = ? LIMIT 1',
+        [input.id]
+      );
+      if (!row) {
+        throw new Error('Material was inserted but could not be read back.');
+      }
+      material = mapMaterial(row);
+    });
+
     if (!material) {
-      throw new Error('Material was inserted but could not be read back.');
+      throw new Error('Material could not be saved.');
     }
-
     return material;
   }
 
@@ -105,6 +118,18 @@ export class MaterialRepository {
        SET chunk_count = ?, updated_at = ?
        WHERE id = ?`,
       [chunkCount, new Date().toISOString(), id]
+    );
+  }
+
+  async updateSourceFileState(
+    id: string,
+    sourceFileState: MaterialSourceFileState
+  ) {
+    await this.db.runAsync(
+      `UPDATE materials
+       SET source_file_state = ?, updated_at = ?
+       WHERE id = ?`,
+      [sourceFileState, new Date().toISOString(), id]
     );
   }
 

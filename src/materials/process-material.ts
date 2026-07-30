@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { File } from 'expo-file-system';
 
 import { runtimeCoordinator } from '@/ai/runtime-coordinator';
 import { MaterialChunkRepository } from '@/db/repositories/material-chunk-repository';
@@ -56,6 +57,18 @@ class MaterialProcessingService {
 
     if (!material) {
       throw new Error('Material not found.');
+    }
+    if (material.sourceFileState !== 'available') {
+      throw new Error(
+        'The private source file is unavailable. Import it again before preparing this material.'
+      );
+    }
+    const sourceFile = new File(material.localUri);
+    if (!sourceFile.exists || sourceFile.size <= 0) {
+      await materials.updateSourceFileState(materialId, 'missing');
+      throw new Error(
+        'The private source file is unavailable. Import it again before preparing this material.'
+      );
     }
 
     const setStatus = async (status: MaterialStatus, message: string) => {

@@ -8,6 +8,9 @@ export const INITIAL_SCHEMA_SQL = `
     local_uri TEXT NOT NULL,
     file_type TEXT NOT NULL CHECK (file_type IN ('txt', 'pdf')),
     file_size INTEGER,
+    source_file_state TEXT NOT NULL DEFAULT 'available' CHECK (
+      source_file_state IN ('available', 'missing')
+    ),
     status TEXT NOT NULL CHECK (
       status IN (
         'imported',

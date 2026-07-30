@@ -8,6 +8,7 @@ export type MaterialStatus =
   | 'failed';
 
 export type MaterialFileType = 'txt' | 'pdf';
+export type MaterialSourceFileState = 'available' | 'missing';
 
 export type Material = {
   id: string;
@@ -16,6 +17,7 @@ export type Material = {
   localUri: string;
   fileType: MaterialFileType;
   fileSize: number | null;
+  sourceFileState: MaterialSourceFileState;
   status: MaterialStatus;
   statusMessage: string | null;
   chunkCount: number;

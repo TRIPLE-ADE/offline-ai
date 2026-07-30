@@ -9,6 +9,9 @@ import type { Material, Topic } from '@/db/types';
 import { useTheme } from '@/hooks/use-theme';
 
 function materialStatus(material: Material) {
+  if (material.sourceFileState !== 'available') {
+    return { label: 'Source missing', tone: 'error' as const };
+  }
   if (material.status === 'ready') return { label: 'Ready offline', tone: 'ready' as const };
   if (material.status === 'failed') return { label: 'Needs attention', tone: 'error' as const };
   if (material.status === 'imported') return { label: 'Not prepared', tone: 'neutral' as const };
@@ -67,7 +70,9 @@ export function MaterialCard({
         </View>
       ) : (
         <ThemedText type="small" themeColor="textSecondary">
-          {material.statusMessage ?? 'Open this material to prepare it for study.'}
+          {material.sourceFileState !== 'available'
+            ? 'Import the source again or remove this material.'
+            : material.statusMessage ?? 'Open this material to prepare it for study.'}
         </ThemedText>
       )}
     </Pressable>

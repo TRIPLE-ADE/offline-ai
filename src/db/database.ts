@@ -1,9 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { MaterialRepository } from '@/db/repositories/material-repository';
 import { DATABASE_VERSION, INITIAL_SCHEMA_SQL } from '@/db/schema';
+import { reconcileMaterialFileStorage } from '@/materials/import-material';
 import { initializeLearningOverview } from '@/stores/learning-overview-store';
 
-export const DATABASE_NAME = 'offline-study-coach.db';
+export const DATABASE_NAME = 'learn-guide.db';
 
 type UserVersionRow = {
   user_version: number;
@@ -30,5 +32,10 @@ export async function migrateDatabase(db: SQLiteDatabase) {
     });
   }
 
+  try {
+    await reconcileMaterialFileStorage(new MaterialRepository(db));
+  } catch (error) {
+    console.warn('Material file reconciliation could not complete.', error);
+  }
   await initializeLearningOverview(db);
 }

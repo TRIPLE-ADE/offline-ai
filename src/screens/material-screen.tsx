@@ -32,6 +32,7 @@ import type { Material, MaterialStatus, Topic } from "@/db/types";
 import { useTheme } from "@/hooks/use-theme";
 import { useLearningFeatureAccess } from "@/hooks/use-learning-feature-access";
 import { topicRoadmapService } from "@/learning/topic-roadmap-service";
+import { MISSING_SOURCE_MESSAGE } from "@/materials/import-material";
 import { materialProcessingService } from "@/materials/process-material";
 import { offlineVectorIndex } from "@/retrieval/offline-vector-index";
 import {
@@ -116,6 +117,10 @@ export default function MaterialScreen() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 
   const process = async () => {
+    if (material?.sourceFileState !== "available") {
+      setError(MISSING_SOURCE_MESSAGE);
+      return;
+    }
     if (!ensureAccess({ hasMaterial: true })) {
       return;
     }
@@ -230,6 +235,7 @@ export default function MaterialScreen() {
 
   const isReady =
     material.status === "ready" || material.status === "generating_topics";
+  const sourceUnavailable = material.sourceFileState !== "available";
   const busy = isProcessing || isGeneratingRoadmap;
   const stepIndex = currentStep(material.status);
   const processProgress =
@@ -266,7 +272,23 @@ export default function MaterialScreen() {
           </Pressable>
         </View>
 
-        {!isReady ? (
+        {sourceUnavailable ? (
+          <StatePanel
+            actionLabel="Import as new material"
+            body={
+              isReady
+                ? "The original private file is missing, but your prepared lessons, topics, and cited passages remain available. Importing again creates a new material."
+                : MISSING_SOURCE_MESSAGE
+            }
+            icon="document-text-outline"
+            onAction={openImportMaterial}
+            onSecondary={confirmDelete}
+            secondaryLabel="Remove this material"
+            title="Source file is unavailable"
+          />
+        ) : null}
+
+        {!sourceUnavailable && !isReady ? (
           <View
             style={[
               styles.processing,

@@ -17,7 +17,8 @@ describe('initial database schema', () => {
     }
   });
 
-  it('starts from migration version one', () => {
+  it('includes source-file ownership state in the initial schema', () => {
     expect(DATABASE_VERSION).toBe(1);
+    expect(INITIAL_SCHEMA_SQL).toContain('source_file_state');
   });
 });
