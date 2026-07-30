@@ -4,15 +4,14 @@ import {
   BottomSheetView,
 } from '@expo/ui/community/bottom-sheet';
 import { useKeepAwake } from 'expo-keep-awake';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { embeddingRuntime } from '@/ai/embedding-runtime';
-import { generationRuntime } from '@/ai/generation-runtime';
+import { getDeviceModelMemoryPolicy } from '@/ai/model-memory-policy';
 import {
   saveModelInstallationState,
 } from '@/ai/model-installation-state';
-import { inspectOfflineResources } from '@/ai/offline-resource-state';
+import { downloadOfflineResources } from '@/ai/offline-resource-state';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ProgressBar } from '@/components/foundation/progress-bar';
 import { ThemedText } from '@/components/themed-text';
@@ -20,7 +19,6 @@ import { Radius, Spacing } from '@/constants/theme';
 import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
-import { useRuntimeStore } from '@/stores/runtime-store';
 import { toast } from '@/utils/app-toast';
 
 function DownloadWakeLock() {
@@ -31,32 +29,21 @@ function DownloadWakeLock() {
 export function OfflineAiSheet() {
   const theme = useTheme();
   const close = useAppOverlayStore((state) => state.closeOfflineAi);
-  const generation = useRuntimeStore((state) => state.generation);
-  const embedding = useRuntimeStore((state) => state.embedding);
   const {
     availability,
     availabilityMessage,
     available: installed,
     checking,
+    downloadActive: installing,
+    downloadProgress: progress,
     installationMessage,
     installationPhase,
     retryVerification,
   } = useOfflineAiCapability();
+  const memoryPolicy = getDeviceModelMemoryPolicy();
+  const unsupported = memoryPolicy.support === 'unsupported';
   const installPromise = useRef<Promise<void> | null>(null);
   const verificationFailed = availability === 'error';
-  const installing =
-    generation.residency === 'loading' ||
-    embedding.residency === 'loading';
-  const progress = useMemo(
-    () =>
-      installed
-        ? 1
-        : Math.max(
-            0,
-            Math.min(1, (generation.progress + embedding.progress) / 2)
-          ),
-    [embedding.progress, generation.progress, installed]
-  );
 
   const install = useCallback(() => {
     if (installPromise.current) {
@@ -66,14 +53,14 @@ export function OfflineAiSheet() {
       close();
       return Promise.resolve();
     }
+    if (unsupported) {
+      return Promise.resolve();
+    }
 
     saveModelInstallationState(
       installationPhase === 'failed' ? 'retrying' : 'downloading'
     );
-    const work = embeddingRuntime
-      .load()
-      .then(() => generationRuntime.load())
-      .then(() => inspectOfflineResources())
+    const work = downloadOfflineResources()
       .then(({ embeddingInstalled, generationInstalled }) => {
         if (!embeddingInstalled || !generationInstalled) {
           throw new Error('The offline AI resources could not be verified.');
@@ -97,7 +84,7 @@ export function OfflineAiSheet() {
 
     installPromise.current = work;
     return work;
-  }, [close, installationPhase, installed]);
+  }, [close, installationPhase, installed, unsupported]);
 
   const retryCheck = useCallback(() => {
     void retryVerification().catch(() => {
@@ -145,12 +132,24 @@ export function OfflineAiSheet() {
           </View>
         </View>
 
-        {checking ? (
+        {checking && !unsupported ? (
           <View style={styles.center}>
             <ActivityIndicator color={theme.primary} />
             <ThemedText themeColor="textSecondary">
               Checking offline resources…
             </ThemedText>
+          </View>
+        ) : unsupported ? (
+          <View style={styles.content}>
+            <ThemedText type="heading">
+              Offline AI isn’t supported on this device
+            </ThemedText>
+            <ThemedText themeColor="textSecondary">
+              This device does not have enough memory to run the local models
+              safely. You can continue exploring imported materials without
+              downloading them.
+            </ThemedText>
+            <PrimaryButton label="Close" onPress={close} />
           </View>
         ) : installed ? (
           <View style={styles.content}>

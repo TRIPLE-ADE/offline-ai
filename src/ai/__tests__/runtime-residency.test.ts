@@ -1,5 +1,7 @@
 import { EmbeddingRuntime } from '@/ai/embedding-runtime';
 import { GenerationRuntime } from '@/ai/generation-runtime';
+import { evaluateModelMemoryPolicy } from '@/ai/model-memory-policy';
+import { RuntimeMemoryController } from '@/ai/runtime-memory-controller';
 import {
   AiOperationCancelledError,
   type AiOperationLease,
@@ -307,5 +309,37 @@ describe('AI runtime residency', () => {
     expect(useRuntimeStore.getState().embedding.residency).toBe('failed');
     await expect(runtime.unload()).resolves.toBeUndefined();
     expect(useRuntimeStore.getState().embedding).toEqual(runtimeState());
+  });
+
+  it('switches from embedding to generation without keeping both resident on constrained devices', async () => {
+    const embeddingModule = {
+      delete: jest.fn(),
+      forward: jest.fn(),
+    };
+    const generationModule = {
+      delete: jest.fn(),
+      generate: jest.fn(),
+      interrupt: jest.fn(),
+      setTokenCallback: jest.fn(),
+    };
+    mockLoadEmbeddingModule.mockResolvedValue(embeddingModule);
+    mockLoadGenerationModule.mockResolvedValue(generationModule);
+    const memoryController = new RuntimeMemoryController({
+      getPolicy: () =>
+        evaluateModelMemoryPolicy({
+          isPhysicalDevice: true,
+          totalMemory: 6_000_000_000,
+        }),
+      hasActiveOperation: () => false,
+    });
+    const embeddingRuntime = new EmbeddingRuntime(memoryController);
+    const generationRuntime = new GenerationRuntime(memoryController);
+
+    await embeddingRuntime.load();
+    await generationRuntime.load();
+
+    expect(embeddingModule.delete).toHaveBeenCalledTimes(1);
+    expect(useRuntimeStore.getState().embedding.residency).toBe('unloaded');
+    expect(useRuntimeStore.getState().generation.residency).toBe('loaded');
   });
 });

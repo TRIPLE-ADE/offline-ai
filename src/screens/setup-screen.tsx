@@ -7,14 +7,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, StyleSheet, View } from 'react-native';
 
-import { embeddingRuntime } from '@/ai/embedding-runtime';
-import { generationRuntime } from '@/ai/generation-runtime';
 import { isOfflineAiAvailable } from '@/ai/model-capability';
 import {
   saveModelInstallationState,
   useModelInstallationStore,
 } from '@/ai/model-installation-state';
 import {
+  downloadOfflineResources,
   getOfflineResourceSizes,
   inspectOfflineResources,
 } from '@/ai/offline-resource-state';
@@ -59,11 +58,6 @@ import {
   FALLBACK_DOWNLOAD_BYTES,
   formatBytes,
 } from '@/onboarding/readiness';
-import {
-  isRuntimeLoaded,
-  useRuntimeStore,
-  type RuntimeState,
-} from '@/stores/runtime-store';
 
 const FALLBACK_EMBEDDING_BYTES = 120_000_000;
 const FALLBACK_GENERATION_BYTES = FALLBACK_DOWNLOAD_BYTES - FALLBACK_EMBEDDING_BYTES;
@@ -109,16 +103,8 @@ function getPreviewStep(value: string | string[] | undefined) {
     : null;
 }
 
-function resourceProgress(state: RuntimeState) {
-  return isRuntimeLoaded(state)
-    ? 1
-    : Math.max(0, Math.min(1, state.progress));
-}
-
 function installationError(
   error: unknown,
-  generation: RuntimeState,
-  embedding: RuntimeState,
   connected: boolean
 ) {
   const message = error instanceof Error ? error.message.toLowerCase() : '';
@@ -128,11 +114,7 @@ function installationError(
   if (message.includes('storage') || message.includes('disk') || message.includes('space')) {
     return 'Free up storage, then try again.';
   }
-  if (
-    (generation.progress >= 1 && embedding.progress >= 1) ||
-    message.includes('verify') ||
-    message.includes('invalid')
-  ) {
+  if (message.includes('verify') || message.includes('invalid')) {
     return 'The downloaded resources could not be verified. Retry the installation on a stable connection.';
   }
   if (message.includes('memory') || message.includes('allocation')) {
@@ -153,8 +135,6 @@ export default function SetupScreen() {
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
   const network = Network.useNetworkState();
-  const generation = useRuntimeStore((state) => state.generation);
-  const embedding = useRuntimeStore((state) => state.embedding);
   const modelInstallation = useModelInstallationStore((state) => state);
   const [onboardingComplete] = useState(hasCompletedOnboarding);
   const [step, setStep] = useState<OnboardingStep>(getOnboardingStep);
@@ -166,6 +146,7 @@ export default function SetupScreen() {
   const [installationMessage, setInstallationMessage] = useState<string | null>(null);
   const installationPromise = useRef<Promise<void> | null>(null);
   const completionReason = useRef<OnboardingCompletionReason | null>(null);
+  const mounted = useRef(true);
   const [transition] = useState(() => new Animated.Value(1));
   const lastAnnouncedProgress = useRef(-1);
   const displayedStep = previewStep ?? step;
@@ -193,11 +174,19 @@ export default function SetupScreen() {
     if (installationPhase === 'preparing') {
       return 0.99;
     }
-    const downloaded =
-      resourceProgress(embedding) * resourceSizes.embedding +
-      resourceProgress(generation) * resourceSizes.generation;
-    return resourceSizes.total > 0 ? downloaded / resourceSizes.total : 0;
-  }, [embedding, generation, installationPhase, previewStep, resourceSizes]);
+    return modelInstallation.downloadProgress;
+  }, [
+    installationPhase,
+    modelInstallation.downloadProgress,
+    previewStep,
+  ]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const transitionTo = useCallback((next: OnboardingStep) => {
     saveOnboardingStep(next);
@@ -352,13 +341,13 @@ export default function SetupScreen() {
 
     const work = (async () => {
       try {
-        await embeddingRuntime.load();
-        await generationRuntime.load();
-        const resources = await inspectOfflineResources();
+        const resources = await downloadOfflineResources();
         if (!resources.embeddingInstalled || !resources.generationInstalled) {
           throw new Error('The offline AI resources could not be verified.');
         }
-        setInstallationPhase('preparing');
+        if (mounted.current) {
+          setInstallationPhase('preparing');
+        }
         if (!reducedMotion) {
           await new Promise((resolve) => setTimeout(resolve, 320));
         }
@@ -373,16 +362,15 @@ export default function SetupScreen() {
           'Your offline study coach is ready'
         );
       } catch (error) {
-        const runtime = useRuntimeStore.getState();
         const message = installationError(
           error,
-          runtime.generation,
-          runtime.embedding,
           connected
         );
         saveModelInstallationState('failed', message);
-        setInstallationPhase('failed');
-        setInstallationMessage(message);
+        if (mounted.current) {
+          setInstallationPhase('failed');
+          setInstallationMessage(message);
+        }
       } finally {
         installationPromise.current = null;
       }
@@ -485,8 +473,8 @@ export default function SetupScreen() {
       ? 2
       : installationPhase === 'preparing'
       ? 3
-      : embedding.residency === 'loading' ||
-          generation.residency === 'loading'
+      : installationPhase === 'installing' &&
+          modelInstallation.downloadProgress >= 1
         ? 2
         : 1;
 

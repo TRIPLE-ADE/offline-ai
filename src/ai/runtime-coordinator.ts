@@ -5,10 +5,11 @@ export type AiOperationKind =
   | 'generating-roadmap'
   | 'generating-lesson'
   | 'generating-quiz'
-  | 'chatting';
+  | 'chatting'
+  | 'removing-resources';
 
 export type AiOperationOwner = {
-  type: 'material' | 'topic' | 'material-chat';
+  type: 'material' | 'topic' | 'material-chat' | 'offline-ai';
   id: string;
 };
 

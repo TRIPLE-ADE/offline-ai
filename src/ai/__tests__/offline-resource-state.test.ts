@@ -1,7 +1,12 @@
 const mockListDownloadedFiles = jest.fn();
+const mockFetch = jest.fn();
+const mockDeleteResources = jest.fn();
+const mockReleaseAll = jest.fn();
 const mockBeginVerification = jest.fn();
 const mockCompleteVerification = jest.fn();
 const mockFailVerification = jest.fn();
+const mockSaveInstallationState = jest.fn();
+const mockSetDownloadState = jest.fn();
 let mockResourceDirectoryExists = true;
 
 jest.mock('expo-file-system', () => ({
@@ -17,6 +22,12 @@ jest.mock(
   'react-native-executorch-expo-resource-fetcher',
   () => ({
     ExpoResourceFetcher: {
+      deleteResources: (...sources: unknown[]) =>
+        mockDeleteResources(...sources),
+      fetch: (
+        callback: (progress: number) => void,
+        ...sources: unknown[]
+      ) => mockFetch(callback, ...sources),
       getFilesTotalSize: jest.fn(),
       listDownloadedFiles: () => mockListDownloadedFiles(),
     },
@@ -51,9 +62,23 @@ jest.mock('@/ai/model-installation-state', () => ({
     mockCompleteVerification(installed),
   failModelResourceVerification: (message: string) =>
     mockFailVerification(message),
+  saveModelInstallationState: (...args: unknown[]) =>
+    mockSaveInstallationState(...args),
+  setModelDownloadState: (...args: unknown[]) =>
+    mockSetDownloadState(...args),
 }));
 
-const { inspectOfflineResources } = jest.requireActual<
+jest.mock('@/ai/runtime-memory-controller', () => ({
+  runtimeMemoryController: {
+    releaseAll: () => mockReleaseAll(),
+  },
+}));
+
+const {
+  downloadOfflineResources,
+  inspectOfflineResources,
+  removeOfflineResources,
+} = jest.requireActual<
   typeof import('@/ai/offline-resource-state')
 >('@/ai/offline-resource-state');
 
@@ -69,9 +94,16 @@ describe('offline resource inspection', () => {
   beforeEach(() => {
     mockResourceDirectoryExists = true;
     mockListDownloadedFiles.mockReset();
+    mockFetch.mockReset();
+    mockDeleteResources.mockReset();
+    mockReleaseAll.mockReset();
     mockBeginVerification.mockReset();
     mockCompleteVerification.mockReset();
     mockFailVerification.mockReset();
+    mockSaveInstallationState.mockReset();
+    mockSetDownloadState.mockReset();
+    mockReleaseAll.mockResolvedValue(undefined);
+    mockDeleteResources.mockResolvedValue(undefined);
   });
 
   it('treats an absent resource directory as verified unavailable', async () => {
@@ -125,5 +157,65 @@ describe('offline resource inspection', () => {
     finishInspection?.(allResources);
     await first;
     expect(mockBeginVerification).toHaveBeenCalledTimes(1);
+  });
+
+  it('downloads files without loading native model modules', async () => {
+    mockFetch.mockImplementation(
+      async (onProgress: (progress: number) => void) => {
+        onProgress(0.45);
+      }
+    );
+    mockListDownloadedFiles.mockResolvedValue(allResources);
+
+    await expect(downloadOfflineResources()).resolves.toEqual({
+      embeddingInstalled: true,
+      generationInstalled: true,
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(Function),
+      ...allResources
+    );
+    expect(mockSetDownloadState).toHaveBeenCalledWith({
+      active: true,
+      progress: 0,
+    });
+    expect(mockSetDownloadState).toHaveBeenCalledWith({ progress: 0.45 });
+    expect(mockSetDownloadState).toHaveBeenCalledWith({ progress: 1 });
+    expect(mockSetDownloadState).toHaveBeenLastCalledWith({ active: false });
+  });
+
+  it('unloads runtimes, deletes resources, and resets persisted state', async () => {
+    mockListDownloadedFiles.mockResolvedValue([]);
+
+    await expect(removeOfflineResources()).resolves.toEqual({
+      embeddingInstalled: false,
+      generationInstalled: false,
+    });
+
+    expect(mockReleaseAll).toHaveBeenCalledTimes(1);
+    expect(mockDeleteResources).toHaveBeenCalledWith(...allResources);
+    expect(mockSaveInstallationState).toHaveBeenCalledWith('not_started');
+    expect(mockSetDownloadState).toHaveBeenCalledWith({
+      active: false,
+      progress: 0,
+    });
+  });
+
+  it('reconciles partial deletion and keeps the failure retryable', async () => {
+    mockDeleteResources.mockRejectedValue(new Error('File is busy'));
+    mockListDownloadedFiles.mockResolvedValue([
+      'generation-model.pte',
+      'generation-tokenizer.json',
+      'generation-tokenizer-config.json',
+    ]);
+
+    await expect(removeOfflineResources()).rejects.toThrow('File is busy');
+
+    expect(mockCompleteVerification).toHaveBeenCalledWith(false);
+    expect(mockSaveInstallationState).toHaveBeenCalledWith(
+      'failed',
+      expect.stringContaining('could not be removed')
+    );
   });
 });

@@ -11,6 +11,8 @@ describe('model installation history and verified availability', () => {
       availability: 'checking',
       availabilityMessage: null,
       availabilityUpdatedAt: new Date(0).toISOString(),
+      downloadActive: false,
+      downloadProgress: 0,
       message: null,
       phase: 'skipped',
       updatedAt: new Date(0).toISOString(),

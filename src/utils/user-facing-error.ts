@@ -2,6 +2,7 @@ import {
   isAiOperationBusyError,
   isAiOperationCancelledError,
 } from '@/ai/runtime-coordinator';
+import { isUnsupportedDeviceMemoryError } from '@/ai/model-memory-policy';
 
 export function userFacingError(error: unknown, fallback: string) {
   if (isAiOperationBusyError(error)) {
@@ -9,6 +10,9 @@ export function userFacingError(error: unknown, fallback: string) {
   }
   if (isAiOperationCancelledError(error)) {
     return 'The offline AI task was stopped.';
+  }
+  if (isUnsupportedDeviceMemoryError(error)) {
+    return 'This device does not have enough memory to run LearnGuide’s offline AI safely.';
   }
 
   const message = error instanceof Error ? error.message : '';

@@ -1,11 +1,13 @@
 import { useCallback } from 'react';
 
+import { getDeviceModelMemoryPolicy } from '@/ai/model-memory-policy';
 import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { evaluateLearningFeatureAccess } from '@/onboarding/first-run-policy';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { toast } from '@/utils/app-toast';
 
 export function useLearningFeatureAccess() {
+  const memoryPolicy = getDeviceModelMemoryPolicy();
   const {
     availability,
     available: modelInstalled,
@@ -34,10 +36,6 @@ export function useLearningFeatureAccess() {
         requiresModel,
       });
 
-      if (decision.allowed) {
-        return true;
-      }
-
       if (decision.prompt === 'import_material') {
         showActionSheet({
           actionLabel: 'Import material',
@@ -47,6 +45,21 @@ export function useLearningFeatureAccess() {
           title: 'Import material to begin',
         });
         return false;
+      }
+
+      if (requiresModel && memoryPolicy.support === 'unsupported') {
+        showActionSheet({
+          actionLabel: 'Got it',
+          description:
+            'This device does not have enough memory to run LearnGuide’s local models safely. Your imported material and existing study records remain available.',
+          onAction: () => undefined,
+          title: 'Offline AI isn’t supported',
+        });
+        return false;
+      }
+
+      if (decision.allowed) {
+        return true;
       }
 
       if (availability === 'checking') {
@@ -83,6 +96,7 @@ export function useLearningFeatureAccess() {
     },
     [
       availability,
+      memoryPolicy.support,
       modelInstalled,
       openImportMaterial,
       openOfflineAi,

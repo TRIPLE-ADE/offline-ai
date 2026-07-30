@@ -3,9 +3,14 @@ import Constants from 'expo-constants';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import {
+  getDeviceModelMemoryPolicy,
+  type ModelMemoryPolicy,
+} from '@/ai/model-memory-policy';
+import { removeOfflineResources } from '@/ai/offline-resource-state';
 import { StatusBadge } from '@/components/foundation/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -27,6 +32,7 @@ import {
   type AppearancePreference,
 } from '@/theme/appearance';
 import { toast } from '@/utils/app-toast';
+import { userFacingError } from '@/utils/user-facing-error';
 import {
   refreshLearningOverview,
   useLearningOverviewStore,
@@ -40,8 +46,16 @@ const APPEARANCE_OPTIONS: { label: string; value: AppearancePreference }[] = [
 
 function offlineAiCopy(
   phase: ModelInstallationPhase,
-  availability: OfflineAiAvailability
+  availability: OfflineAiAvailability,
+  memoryPolicy: ModelMemoryPolicy
 ) {
+  if (memoryPolicy.support === 'unsupported') {
+    return {
+      badge: 'Not supported',
+      description:
+        'This device does not have enough memory to run the offline AI safely.',
+    };
+  }
   if (availability === 'checking') {
     return {
       badge: 'Checking resources',
@@ -122,6 +136,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
+  const memoryPolicy = getDeviceModelMemoryPolicy();
+  const [removingOfflineAi, setRemovingOfflineAi] = useState(false);
   const {
     availability,
     available: ready,
@@ -131,10 +147,19 @@ export default function SettingsScreen() {
   } = useOfflineAiCapability();
   const resourceCopy = offlineAiCopy(
     modelInstallationPhase,
-    availability
+    availability,
+    memoryPolicy
   );
+  const canRemoveOfflineAi =
+    ready ||
+    modelInstallationPhase === 'ready' ||
+    modelInstallationPhase === 'failed' ||
+    modelInstallationPhase === 'downloading' ||
+    modelInstallationPhase === 'retrying';
   const handleResourceAction =
-    availability === 'error'
+    memoryPolicy.support === 'unsupported'
+      ? openOfflineAi
+      : availability === 'error'
       ? () => {
           void retryVerification().catch(() => {
             toast.error('Offline AI could not be checked');
@@ -197,6 +222,38 @@ export default function SettingsScreen() {
       title: 'Delete all local learning data?',
     });
 
+  const removeOfflineAi = () =>
+    showActionSheet({
+      actionLabel: 'Remove offline AI',
+      cancelLabel: 'Keep resources',
+      description:
+        'This removes the downloaded AI files and releases their memory. Your materials, lessons, results, progress, and chat stay on this device.',
+      destructive: true,
+      onAction: () => {
+        if (removingOfflineAi) {
+          return;
+        }
+        setRemovingOfflineAi(true);
+        void removeOfflineResources()
+          .then(() => {
+            toast.success('Offline AI removed', {
+              description:
+                'You can download it again from Home or Settings whenever you are ready.',
+            });
+          })
+          .catch((error: unknown) => {
+            toast.error('Offline AI could not be removed', {
+              description: userFacingError(
+                error,
+                'Finish any active study task, then retry.'
+              ),
+            });
+          })
+          .finally(() => setRemovingOfflineAi(false));
+      },
+      title: 'Remove downloaded offline AI?',
+    });
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
@@ -217,18 +274,22 @@ export default function SettingsScreen() {
               },
             ]}>
               <View style={styles.resourceHeading}>
-                <View style={[styles.resourceIcon, { backgroundColor: ready ? theme.successSoft : theme.primarySoft }]}>
+                <View style={[styles.resourceIcon, { backgroundColor: ready && memoryPolicy.support === 'supported' ? theme.successSoft : theme.primarySoft }]}>
                   <Ionicons
                   name={
-                    ready
+                    ready && memoryPolicy.support === 'supported'
                       ? 'checkmark-circle-outline'
+                      : memoryPolicy.support === 'unsupported'
+                        ? 'alert-circle-outline'
                       : availability === 'error'
                         ? 'alert-circle-outline'
                         : 'download-outline'
                   }
                   color={
-                    ready
+                    ready && memoryPolicy.support === 'supported'
                       ? theme.success
+                      : memoryPolicy.support === 'unsupported'
+                        ? theme.danger
                       : availability === 'error'
                         ? theme.danger
                         : theme.primary
@@ -246,9 +307,10 @@ export default function SettingsScreen() {
             <StatusBadge
               label={resourceCopy.badge}
               tone={
-                ready
+                ready && memoryPolicy.support === 'supported'
                   ? 'offline'
-                  : availability === 'error'
+                  : availability === 'error' ||
+                      memoryPolicy.support === 'unsupported'
                     ? 'error'
                     : checking
                       ? 'neutral'
@@ -262,7 +324,9 @@ export default function SettingsScreen() {
                 style={styles.manageAction}>
                 <ThemedText type="smallBold" style={{ color: theme.primary }}>
                   {ready
-                    ? 'Manage offline resources'
+                    ? 'View offline AI'
+                    : memoryPolicy.support === 'unsupported'
+                      ? 'Why it’s unavailable'
                     : availability === 'error'
                       ? 'Check again'
                       : 'Download or retry'}
@@ -335,6 +399,18 @@ export default function SettingsScreen() {
               value="No account, cloud sync, or server-side AI"
             />
             <SettingsRow icon="chatbubbles-outline" label="Delete all chat history" onPress={clearChat} />
+            {canRemoveOfflineAi ? (
+              <SettingsRow
+                destructive
+                icon="hardware-chip-outline"
+                label={
+                  removingOfflineAi
+                    ? 'Removing offline AI…'
+                    : 'Remove downloaded offline AI'
+                }
+                onPress={removingOfflineAi ? undefined : removeOfflineAi}
+              />
+            ) : null}
             <SettingsRow
               destructive
               icon="trash-outline"

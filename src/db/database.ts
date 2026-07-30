@@ -30,8 +30,5 @@ export async function migrateDatabase(db: SQLiteDatabase) {
     });
   }
 
-  // Hydrate the shared read model before SQLiteProvider renders its children.
-  // Screens can then render a stable snapshot instead of issuing their own
-  // focus-time queries and briefly switching through contradictory UI states.
   await initializeLearningOverview(db);
 }

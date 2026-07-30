@@ -1,8 +1,13 @@
 import { Platform } from 'react-native';
 
+import {
+  evaluateModelMemoryPolicy,
+  MINIMUM_MODEL_MEMORY_BYTES,
+} from '@/ai/model-memory-policy';
+
 export const FALLBACK_DOWNLOAD_BYTES = 2_400_000_000;
 export const INSTALLATION_HEADROOM_BYTES = 600_000_000;
-export const MINIMUM_MEMORY_BYTES = 4_000_000_000;
+export const MINIMUM_MEMORY_BYTES = MINIMUM_MODEL_MEMORY_BYTES;
 
 export type ReadinessInput = {
   availableStorage: number;
@@ -27,9 +32,10 @@ export function evaluateReadiness(
 ): ReadinessResult {
   const requiredStorage = downloadBytes + INSTALLATION_HEADROOM_BYTES;
   const compatible =
-    !input.isPhysicalDevice ||
-    input.totalMemory === null ||
-    input.totalMemory >= MINIMUM_MEMORY_BYTES;
+    evaluateModelMemoryPolicy({
+      isPhysicalDevice: input.isPhysicalDevice,
+      totalMemory: input.totalMemory,
+    }).support === 'supported';
   const hasStorage = input.availableStorage >= requiredStorage;
   const online = input.networkConnected === true && input.internetReachable !== false;
   const cellular = input.connectionType === 'CELLULAR';

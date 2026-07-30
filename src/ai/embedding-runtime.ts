@@ -2,6 +2,10 @@ import { models, TextEmbeddingsModule } from 'react-native-executorch';
 
 import { initializeExecutorch } from '@/ai/initialize-executorch';
 import type { AiOperationLease } from '@/ai/runtime-coordinator';
+import {
+  runtimeMemoryController,
+  type RuntimeMemoryController,
+} from '@/ai/runtime-memory-controller';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
 export class EmbeddingRuntime {
@@ -9,6 +13,14 @@ export class EmbeddingRuntime {
   private loadPromise: Promise<void> | null = null;
   private unloadPromise: Promise<void> | null = null;
   private activeEmbeddings = 0;
+
+  constructor(
+    private readonly memoryController?: RuntimeMemoryController
+  ) {
+    this.memoryController?.register('embedding', {
+      unload: () => this.unload(),
+    });
+  }
 
   async load() {
     if (this.module) {
@@ -27,39 +39,47 @@ export class EmbeddingRuntime {
       }
     }
 
-    initializeExecutorch();
-    useRuntimeStore.getState().setEmbedding({
-      residency: 'loading',
-      progress: 0,
-      error: null,
-    });
+    const loadNativeModule = async () => {
+      initializeExecutorch();
+      useRuntimeStore.getState().setEmbedding({
+        residency: 'loading',
+        progress: 0,
+        error: null,
+      });
 
-    this.loadPromise = TextEmbeddingsModule.fromModelName(
-      models.text_embedding.all_minilm_l6_v2(),
-      (progress) =>
-        useRuntimeStore.getState().setEmbedding({
-          residency: 'loading',
-          progress,
-        })
-    )
-      .then((module) => {
+      try {
+        const module = await TextEmbeddingsModule.fromModelName(
+          models.text_embedding.all_minilm_l6_v2(),
+          (progress) =>
+            useRuntimeStore.getState().setEmbedding({
+              residency: 'loading',
+              progress,
+            })
+        );
         this.module = module;
         useRuntimeStore.getState().setEmbedding({
           residency: 'loaded',
           progress: 1,
           error: null,
         });
-      })
-      .catch((error: unknown) => {
+      } catch (error) {
         useRuntimeStore.getState().setEmbedding({
           residency: 'failed',
           error: error instanceof Error ? error.message : 'Unable to load MiniLM.',
         });
         throw error;
-      })
-      .finally(() => {
+      }
+    };
+
+    const work = this.memoryController
+      ? this.memoryController.load('embedding', loadNativeModule)
+      : loadNativeModule();
+    const loadPromise = work.finally(() => {
+      if (this.loadPromise === loadPromise) {
         this.loadPromise = null;
-      });
+      }
+    });
+    this.loadPromise = loadPromise;
 
     return this.loadPromise;
   }
@@ -147,4 +167,6 @@ export class EmbeddingRuntime {
   }
 }
 
-export const embeddingRuntime = new EmbeddingRuntime();
+export const embeddingRuntime = new EmbeddingRuntime(
+  runtimeMemoryController
+);

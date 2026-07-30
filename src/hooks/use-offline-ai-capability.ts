@@ -11,6 +11,12 @@ export function useOfflineAiCapability() {
   );
   const installationMessage = useModelInstallationStore((state) => state.message);
   const installationPhase = useModelInstallationStore((state) => state.phase);
+  const downloadActive = useModelInstallationStore(
+    (state) => state.downloadActive
+  );
+  const downloadProgress = useModelInstallationStore(
+    (state) => state.downloadProgress
+  );
   const retryVerification = useCallback(
     () => inspectOfflineResources(),
     []
@@ -21,6 +27,8 @@ export function useOfflineAiCapability() {
     availabilityMessage,
     available: isOfflineAiAvailable(availability),
     checking: availability === 'checking',
+    downloadActive,
+    downloadProgress,
     installationMessage,
     installationPhase,
     retryVerification,

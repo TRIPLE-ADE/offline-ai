@@ -2,6 +2,10 @@ import { LLMModule, models, type Message } from 'react-native-executorch';
 
 import { initializeExecutorch } from '@/ai/initialize-executorch';
 import type { AiOperationLease } from '@/ai/runtime-coordinator';
+import {
+  runtimeMemoryController,
+  type RuntimeMemoryController,
+} from '@/ai/runtime-memory-controller';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
 export class GenerationRuntime {
@@ -9,6 +13,14 @@ export class GenerationRuntime {
   private loadPromise: Promise<void> | null = null;
   private unloadPromise: Promise<void> | null = null;
   private isGenerating = false;
+
+  constructor(
+    private readonly memoryController?: RuntimeMemoryController
+  ) {
+    this.memoryController?.register('generation', {
+      unload: () => this.unload(),
+    });
+  }
 
   async load() {
     if (this.module) {
@@ -27,39 +39,47 @@ export class GenerationRuntime {
       }
     }
 
-    initializeExecutorch();
-    useRuntimeStore.getState().setGeneration({
-      residency: 'loading',
-      progress: 0,
-      error: null,
-    });
+    const loadNativeModule = async () => {
+      initializeExecutorch();
+      useRuntimeStore.getState().setGeneration({
+        residency: 'loading',
+        progress: 0,
+        error: null,
+      });
 
-    this.loadPromise = LLMModule.fromModelName(
-      models.llm.gemma4_e2b(),
-      (progress) =>
-        useRuntimeStore.getState().setGeneration({
-          residency: 'loading',
-          progress,
-        })
-    )
-      .then((module) => {
+      try {
+        const module = await LLMModule.fromModelName(
+          models.llm.gemma4_e2b(),
+          (progress) =>
+            useRuntimeStore.getState().setGeneration({
+              residency: 'loading',
+              progress,
+            })
+        );
         this.module = module;
         useRuntimeStore.getState().setGeneration({
           residency: 'loaded',
           progress: 1,
           error: null,
         });
-      })
-      .catch((error: unknown) => {
+      } catch (error) {
         useRuntimeStore.getState().setGeneration({
           residency: 'failed',
           error: error instanceof Error ? error.message : 'Unable to load Gemma.',
         });
         throw error;
-      })
-      .finally(() => {
+      }
+    };
+
+    const work = this.memoryController
+      ? this.memoryController.load('generation', loadNativeModule)
+      : loadNativeModule();
+    const loadPromise = work.finally(() => {
+      if (this.loadPromise === loadPromise) {
         this.loadPromise = null;
-      });
+      }
+    });
+    this.loadPromise = loadPromise;
 
     return this.loadPromise;
   }
@@ -171,4 +191,6 @@ export class GenerationRuntime {
   }
 }
 
-export const generationRuntime = new GenerationRuntime();
+export const generationRuntime = new GenerationRuntime(
+  runtimeMemoryController
+);

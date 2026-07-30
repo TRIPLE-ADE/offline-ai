@@ -21,6 +21,7 @@ import { initializeExecutorch } from "@/ai/initialize-executorch";
 import { inspectOfflineResources } from "@/ai/offline-resource-state";
 import { AppOverlays } from "@/components/app-overlays";
 import { AppToaster } from "@/components/foundation/app-toaster";
+import { RuntimeMemoryLifecycle } from "@/components/ai/runtime-memory-lifecycle";
 import { Colors, Fonts } from "@/constants/theme";
 import { DATABASE_NAME, migrateDatabase } from "@/db/database";
 import { useTheme } from "@/hooks/use-theme";
@@ -147,6 +148,7 @@ export default function RootLayout() {
               options={{ enableChangeListener: true }}
             >
               <AppNavigator />
+              <RuntimeMemoryLifecycle />
               <AppOverlays />
               <AppToaster />
             </SQLiteProvider>

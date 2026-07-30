@@ -67,6 +67,12 @@ type ModelInstallationStore = ModelInstallationState & {
   availability: OfflineAiAvailability;
   availabilityMessage: string | null;
   availabilityUpdatedAt: string;
+  downloadActive: boolean;
+  downloadProgress: number;
+  setDownloadState: (state: {
+    active?: boolean;
+    progress?: number;
+  }) => void;
   setState: (state: ModelInstallationState) => void;
 };
 
@@ -76,6 +82,16 @@ export const useModelInstallationStore = create<ModelInstallationStore>(
     availability: 'checking',
     availabilityMessage: null,
     availabilityUpdatedAt: initialState.updatedAt,
+    downloadActive: false,
+    downloadProgress: 0,
+    setDownloadState: ({ active, progress }) =>
+      set((state) => ({
+        downloadActive: active ?? state.downloadActive,
+        downloadProgress:
+          progress === undefined
+            ? state.downloadProgress
+            : Math.max(0, Math.min(1, progress)),
+      })),
     setState: (state) => set(state),
   })
 );
@@ -101,6 +117,13 @@ export function saveModelInstallationState(
   MODEL_INSTALLATION_STATE.write(JSON.stringify(state));
   useModelInstallationStore.getState().setState(state);
   return state;
+}
+
+export function setModelDownloadState(state: {
+  active?: boolean;
+  progress?: number;
+}) {
+  useModelInstallationStore.getState().setDownloadState(state);
 }
 
 export function beginModelResourceVerification() {
