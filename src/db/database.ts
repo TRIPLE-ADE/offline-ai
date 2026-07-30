@@ -32,8 +32,14 @@ export async function migrateDatabase(db: SQLiteDatabase) {
     });
   }
 
+  const materials = new MaterialRepository(db);
   try {
-    await reconcileMaterialFileStorage(new MaterialRepository(db));
+    await materials.recoverInterruptedRoadmapGeneration();
+  } catch (error) {
+    console.warn('Interrupted roadmap recovery could not complete.', error);
+  }
+  try {
+    await reconcileMaterialFileStorage(materials);
   } catch (error) {
     console.warn('Material file reconciliation could not complete.', error);
   }

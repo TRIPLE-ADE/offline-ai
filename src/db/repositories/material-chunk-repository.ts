@@ -82,4 +82,34 @@ export class MaterialChunkRepository {
 
     return rows.map(mapChunk);
   }
+
+  async listByIdsForMaterial(
+    materialId: string,
+    chunkIds: string[]
+  ): Promise<MaterialChunk[]> {
+    const orderedIds = [...new Set(chunkIds)];
+    if (orderedIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = orderedIds.map(() => '?').join(', ');
+    const rows = await this.db.getAllAsync<MaterialChunkRow>(
+      `SELECT *
+       FROM material_chunks
+       WHERE material_id = ?
+         AND id IN (${placeholders})`,
+      [materialId, ...orderedIds]
+    );
+    const chunksById = new Map(
+      rows.map((row) => {
+        const chunk = mapChunk(row);
+        return [chunk.id, chunk] as const;
+      })
+    );
+
+    return orderedIds.flatMap((id) => {
+      const chunk = chunksById.get(id);
+      return chunk ? [chunk] : [];
+    });
+  }
 }

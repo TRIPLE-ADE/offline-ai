@@ -1,5 +1,8 @@
 import { EmbeddingRuntime } from '@/ai/embedding-runtime';
-import { GenerationRuntime } from '@/ai/generation-runtime';
+import {
+  AiGenerationTimeoutError,
+  GenerationRuntime,
+} from '@/ai/generation-runtime';
 import { evaluateModelMemoryPolicy } from '@/ai/model-memory-policy';
 import { RuntimeMemoryController } from '@/ai/runtime-memory-controller';
 import {
@@ -116,12 +119,14 @@ describe('AI runtime residency', () => {
 
   it('tracks generation loading separately from loaded residency', async () => {
     const load = deferred<{
+      configure: jest.Mock;
       delete: jest.Mock;
       generate: jest.Mock;
       interrupt: jest.Mock;
       setTokenCallback: jest.Mock;
     }>();
     const module = {
+      configure: jest.fn(),
       delete: jest.fn(),
       generate: jest.fn(),
       interrupt: jest.fn(),
@@ -154,6 +159,7 @@ describe('AI runtime residency', () => {
   it('publishes generation activity without changing residency', async () => {
     const generation = deferred<string>();
     const module = {
+      configure: jest.fn(),
       delete: jest.fn(),
       generate: jest.fn(() => generation.promise),
       interrupt: jest.fn(),
@@ -188,8 +194,44 @@ describe('AI runtime residency', () => {
     );
   });
 
+  it('interrupts an overlong generation and reports a timeout after native inference settles', async () => {
+    jest.useFakeTimers();
+    try {
+      const generation = deferred<string>();
+      const module = {
+        configure: jest.fn(),
+        delete: jest.fn(),
+        generate: jest.fn(() => generation.promise),
+        interrupt: jest.fn(),
+        setTokenCallback: jest.fn(),
+      };
+      mockLoadGenerationModule.mockResolvedValue(module);
+      const runtime = new GenerationRuntime();
+      await runtime.load();
+
+      const output = runtime.generate(
+        [{ role: 'user', content: 'Generate a long response.' }],
+        activeLease(),
+        undefined,
+        { timeoutMs: 1_000 }
+      );
+      jest.advanceTimersByTime(1_000);
+
+      expect(module.interrupt).toHaveBeenCalledTimes(1);
+      expect(useRuntimeStore.getState().generation.activity).toBe(
+        'interrupting'
+      );
+      generation.resolve('partial response');
+      await expect(output).rejects.toBeInstanceOf(AiGenerationTimeoutError);
+      expect(useRuntimeStore.getState().generation.activity).toBe('idle');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('keeps load failure retryable', async () => {
     const module = {
+      configure: jest.fn(),
       delete: jest.fn(),
       generate: jest.fn(),
       interrupt: jest.fn(),
@@ -217,6 +259,7 @@ describe('AI runtime residency', () => {
   it('does not unload generation while inference is active', async () => {
     const generation = deferred<string>();
     const module = {
+      configure: jest.fn(),
       delete: jest.fn(),
       generate: jest.fn(() => generation.promise),
       interrupt: jest.fn(),
@@ -246,6 +289,7 @@ describe('AI runtime residency', () => {
     const generation = deferred<string>();
     let emitToken: (token: string) => void = () => undefined;
     const module = {
+      configure: jest.fn(),
       delete: jest.fn(),
       generate: jest.fn(() => generation.promise),
       interrupt: jest.fn(),
@@ -317,6 +361,7 @@ describe('AI runtime residency', () => {
       forward: jest.fn(),
     };
     const generationModule = {
+      configure: jest.fn(),
       delete: jest.fn(),
       generate: jest.fn(),
       interrupt: jest.fn(),

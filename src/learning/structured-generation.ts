@@ -1,4 +1,7 @@
-import type { Message } from 'react-native-executorch';
+import {
+  fixAndValidateStructuredOutput,
+  type Message,
+} from 'react-native-executorch';
 import type { z } from 'zod';
 
 import { generationRuntime } from '@/ai/generation-runtime';
@@ -17,37 +20,86 @@ export function extractJsonObject(text: string): unknown {
   return JSON.parse(withoutFence.slice(start, end + 1)) as unknown;
 }
 
+export function hasCompleteJsonObject(text: string) {
+  const start = text.indexOf('{');
+  if (start < 0) {
+    return false;
+  }
+
+  let depth = 0;
+  let insideString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (insideString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        insideString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      insideString = true;
+    } else if (character === '{' || character === '[') {
+      depth += 1;
+    } else if (character === '}' || character === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        return true;
+      }
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+
+  return false;
+}
+
 export async function generateValidatedObject<T>(
   messages: Message[],
   schema: z.ZodType<T>,
-  repairDescription: string,
+  _repairDescription: string,
   lease: AiOperationLease
 ): Promise<T> {
-  const firstOutput = await generationRuntime.generate(messages, lease);
-  const firstResult = parseWithSchema(firstOutput, schema);
-  if (firstResult.success) {
-    return firstResult.data;
+  let streamedOutput = '';
+  let requestedEarlyStop = false;
+  const output = await generationRuntime.generate(
+    messages,
+    lease,
+    (token) => {
+      streamedOutput += token;
+      if (!requestedEarlyStop && hasCompleteJsonObject(streamedOutput)) {
+        requestedEarlyStop = true;
+        generationRuntime.interrupt();
+      }
+    },
+    { timeoutMs: 90_000 }
+  );
+  const candidate = hasCompleteJsonObject(streamedOutput)
+    ? streamedOutput
+    : output;
+
+  const parsed = parseWithSchema(candidate, schema);
+  if (parsed.success) {
+    return parsed.data;
   }
 
-  const repairedOutput = await generationRuntime.generate(
-    [
-      {
-        role: 'system',
-        content:
-          'Repair malformed JSON. Return one valid JSON object only, without markdown or commentary.',
-      },
-      {
-        role: 'user',
-        content: `${repairDescription}\n\nMalformed output:\n${firstOutput}`,
-      },
-    ],
-    lease
-  );
-  const repairedResult = parseWithSchema(repairedOutput, schema);
-  if (!repairedResult.success) {
-    throw new Error(`The local model returned invalid structured output: ${repairedResult.error}`);
+  try {
+    // Repair punctuation and quoting locally. A malformed JSON response must
+    // never trigger a second full model inference on a mobile device.
+    return fixAndValidateStructuredOutput(candidate, schema) as T;
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : parsed.error;
+    throw new Error(`The local model returned invalid structured output: ${reason}`);
   }
-  return repairedResult.data;
 }
 
 function parseWithSchema<T>(text: string, schema: z.ZodType<T>) {

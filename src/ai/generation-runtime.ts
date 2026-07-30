@@ -8,6 +8,21 @@ import {
 } from '@/ai/runtime-memory-controller';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
+const DEFAULT_GENERATION_TIMEOUT_MS = 120_000;
+
+export class AiGenerationTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(
+      `The local model did not finish within ${Math.round(timeoutMs / 1_000)} seconds. It was stopped to protect device performance.`
+    );
+    this.name = 'AiGenerationTimeoutError';
+  }
+}
+
+type GenerationOptions = {
+  timeoutMs?: number;
+};
+
 export class GenerationRuntime {
   private module: LLMModule | null = null;
   private loadPromise: Promise<void> | null = null;
@@ -56,6 +71,12 @@ export class GenerationRuntime {
               progress,
             })
         );
+        module.configure({
+          generationConfig: {
+            outputTokenBatchSize: 8,
+            batchTimeInterval: 100,
+          },
+        });
         this.module = module;
         useRuntimeStore.getState().setGeneration({
           residency: 'loaded',
@@ -87,13 +108,17 @@ export class GenerationRuntime {
   async generate(
     messages: Message[],
     lease: AiOperationLease,
-    onToken: (token: string) => void = () => undefined
+    onToken: (token: string) => void = () => undefined,
+    options: GenerationOptions = {}
   ) {
     lease.assertActive();
     if (this.isGenerating) {
       throw new Error('Another local generation is already in progress.');
     }
     this.isGenerating = true;
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
 
     try {
       if (!this.module) {
@@ -115,10 +140,24 @@ export class GenerationRuntime {
           }
         },
       });
+      const timeoutMs = options.timeoutMs ?? DEFAULT_GENERATION_TIMEOUT_MS;
+      timeout = setTimeout(() => {
+        timedOut = true;
+        useRuntimeStore.getState().setGeneration({
+          error: `This generation exceeded ${Math.round(timeoutMs / 1_000)} seconds and is being stopped to protect device performance.`,
+        });
+        this.interrupt();
+      }, timeoutMs);
       const output = await this.module.generate(messages);
+      if (timedOut) {
+        throw new AiGenerationTimeoutError(timeoutMs);
+      }
       lease.assertActive();
       return output;
     } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
       this.isGenerating = false;
       if (this.module) {
         useRuntimeStore.getState().setGeneration({ activity: 'idle' });

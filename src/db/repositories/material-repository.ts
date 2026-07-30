@@ -112,6 +112,20 @@ export class MaterialRepository {
     );
   }
 
+  async recoverInterruptedRoadmapGeneration() {
+    await this.db.runAsync(
+      `UPDATE materials
+       SET status = 'ready',
+           status_message = ?,
+           updated_at = ?
+       WHERE status = 'generating_topics'`,
+      [
+        'Roadmap creation was interrupted. Create it again when you are ready.',
+        new Date().toISOString(),
+      ]
+    );
+  }
+
   async updateChunkCount(id: string, chunkCount: number) {
     await this.db.runAsync(
       `UPDATE materials

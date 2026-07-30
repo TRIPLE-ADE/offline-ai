@@ -18,6 +18,12 @@ export function userFacingError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : '';
   const normalized = message.toLowerCase();
 
+  if (
+    normalized.includes('did not finish within') ||
+    normalized.includes('protect device performance')
+  ) {
+    return 'The offline AI took too long, so LearnGuide stopped it to protect device performance. Let the device cool briefly, then retry.';
+  }
   if (normalized.includes('selectable text') || normalized.includes('no text')) {
     return 'This PDF does not appear to contain enough selectable text. Try a digital PDF or a TXT version.';
   }

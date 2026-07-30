@@ -15,7 +15,6 @@ import {
   View,
 } from "react-native";
 
-import { isAiOperationCancelledError } from "@/ai/runtime-coordinator";
 import { PrimaryButton } from "@/components/foundation/primary-button";
 import { ProcessingStepper } from "@/components/foundation/processing-stepper";
 import { ProgressBar } from "@/components/foundation/progress-bar";
@@ -88,10 +87,7 @@ export default function MaterialScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-      return () => {
-        topicRoadmapService.stop(materialId);
-      };
-    }, [load, materialId]),
+    }, [load]),
   );
 
   const coverage = useMemo(
@@ -149,7 +145,7 @@ export default function MaterialScreen() {
   };
 
   const generateRoadmap = async () => {
-    if (!ensureAccess({ hasMaterial: true })) {
+    if (!ensureAccess({ hasMaterial: true, requiresModel: false })) {
       return;
     }
     setError(null);
@@ -161,14 +157,12 @@ export default function MaterialScreen() {
       setTopics(await topicRoadmapService.generate(db, materialId));
       await load();
     } catch (caught) {
-      if (!isAiOperationCancelledError(caught)) {
-        setError(
-          userFacingError(
-            caught,
-            "The roadmap could not be created. Retry without preparing the material again.",
-          ),
-        );
-      }
+      setError(
+        userFacingError(
+          caught,
+          "The roadmap could not be created. Retry without preparing the material again.",
+        ),
+      );
       await load();
     } finally {
       setIsGeneratingRoadmap(false);
@@ -310,15 +304,16 @@ export default function MaterialScreen() {
             icon="map-outline"
             onAction={() => void generateRoadmap()}
             secondaryLabel={
-              isGeneratingRoadmap ? "Stop generation" : "Chat with material"
+              isGeneratingRoadmap ? undefined : "Chat with material"
             }
-            onSecondary={() =>
+            onSecondary={
               isGeneratingRoadmap
-                ? topicRoadmapService.stop(materialId)
-                : router.navigate({
-                    pathname: "/material/[materialId]/chat",
-                    params: { materialId },
-                  })
+                ? undefined
+                : () =>
+                    router.navigate({
+                      pathname: "/material/[materialId]/chat",
+                      params: { materialId },
+                    })
             }
             title="Offline search is ready"
           />

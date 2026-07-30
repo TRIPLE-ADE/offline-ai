@@ -1,5 +1,8 @@
 import type { MaterialChunk } from '@/db/types';
-import { buildDeterministicTopicDrafts } from '@/learning/roadmap-fallback';
+import {
+  buildDeterministicTopicDrafts,
+  capTopicDrafts,
+} from '@/learning/roadmap-fallback';
 import { topicRoadmapSchema } from '@/learning/schemas';
 
 function chunk(
@@ -44,5 +47,19 @@ describe('deterministic roadmap fallback', () => {
         topics: [{ title: 'Missing sources', summary: 'A valid-looking summary.' }],
       }).success
     ).toBe(false);
+  });
+
+  it('caps long roadmaps without losing source coverage', () => {
+    const chunks = Array.from({ length: 30 }, (_, index) =>
+      chunk(`chunk-${index}`, index, `Section ${index + 1}`)
+    );
+
+    const topics = capTopicDrafts(buildDeterministicTopicDrafts(chunks));
+    const sourceIds = topics.flatMap((topic) => topic.sourceChunkIds);
+
+    expect(topics).toHaveLength(24);
+    expect(sourceIds).toEqual(chunks.map((source) => source.id));
+    expect(new Set(sourceIds).size).toBe(chunks.length);
+    expect(topicRoadmapSchema.safeParse({ topics }).success).toBe(true);
   });
 });
