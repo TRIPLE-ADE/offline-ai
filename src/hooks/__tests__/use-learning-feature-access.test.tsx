@@ -5,8 +5,30 @@ import { useLearningFeatureAccess } from '@/hooks/use-learning-feature-access';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
+const mockInspectOfflineResources = jest.fn();
+const mockToastError = jest.fn();
+const mockToastInfo = jest.fn();
+
+jest.mock('@/ai/offline-resource-state', () => ({
+  inspectOfflineResources: () => mockInspectOfflineResources(),
+}));
+
+jest.mock('@/utils/app-toast', () => ({
+  toast: {
+    error: (...args: unknown[]) => mockToastError(...args),
+    info: (...args: unknown[]) => mockToastInfo(...args),
+  },
+}));
+
 describe('learning feature access prompts', () => {
   beforeEach(() => {
+    mockInspectOfflineResources.mockReset();
+    mockInspectOfflineResources.mockResolvedValue({
+      embeddingInstalled: false,
+      generationInstalled: false,
+    });
+    mockToastError.mockReset();
+    mockToastInfo.mockReset();
     useAppOverlayStore.setState({
       actionSheet: null,
       importMaterialOpen: false,
@@ -20,7 +42,9 @@ describe('learning feature access prompts', () => {
       message: null,
       phase: 'skipped',
       updatedAt: new Date(0).toISOString(),
-      verification: 'complete',
+      availability: 'unavailable',
+      availabilityMessage: null,
+      availabilityUpdatedAt: new Date(0).toISOString(),
     });
   });
 
@@ -51,7 +75,9 @@ describe('learning feature access prompts', () => {
       message: null,
       phase: 'ready',
       updatedAt: new Date().toISOString(),
-      verification: 'complete',
+      availability: 'available',
+      availabilityMessage: null,
+      availabilityUpdatedAt: new Date().toISOString(),
     });
     const { result } = await renderHook(() => useLearningFeatureAccess());
     let allowed = true;
@@ -94,16 +120,54 @@ describe('learning feature access prompts', () => {
       message: null,
       phase: 'ready',
       updatedAt: new Date().toISOString(),
-      verification: 'pending',
+      availability: 'checking',
+      availabilityMessage: null,
+      availabilityUpdatedAt: new Date(0).toISOString(),
     });
     const { result } = await renderHook(() => useLearningFeatureAccess());
 
     expect(result.current.modelInstalled).toBe(false);
 
     await act(() => {
-      useModelInstallationStore.setState({ verification: 'complete' });
+      useModelInstallationStore.setState({ availability: 'available' });
     });
 
     expect(result.current.modelInstalled).toBe(true);
+  });
+
+  it('does not offer another download while resource verification is running', async () => {
+    useModelInstallationStore.setState({ availability: 'checking' });
+    const { result } = await renderHook(() => useLearningFeatureAccess());
+
+    expect(result.current.ensureAccess({ hasMaterial: true })).toBe(false);
+    expect(useAppOverlayStore.getState().actionSheet).toBeNull();
+    expect(mockToastInfo).toHaveBeenCalledWith(
+      'Checking offline AI',
+      expect.objectContaining({
+        description: expect.stringContaining('confirming'),
+      })
+    );
+  });
+
+  it('offers a resource check instead of a download when verification failed', async () => {
+    useModelInstallationStore.setState({
+      availability: 'error',
+      availabilityMessage: 'Unable to read the resource directory.',
+    });
+    const { result } = await renderHook(() => useLearningFeatureAccess());
+
+    expect(result.current.ensureAccess({ hasMaterial: true })).toBe(false);
+    const options = useAppOverlayStore.getState().actionSheet;
+    expect(options).toEqual(
+      expect.objectContaining({
+        actionLabel: 'Check again',
+        title: 'Check offline AI',
+      })
+    );
+    if (!options) throw new Error('Expected an offline AI check action sheet');
+
+    await act(() => options.onAction());
+    expect(mockInspectOfflineResources).toHaveBeenCalledTimes(1);
+    expect(useAppOverlayStore.getState().offlineAiOpen).toBe(false);
   });
 });

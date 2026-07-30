@@ -1,34 +1,21 @@
 import { useCallback } from 'react';
 
-import {
-  useModelInstallationStore,
-  type ModelInstallationPhase,
-  type ModelInstallationVerification,
-} from '@/ai/model-installation-state';
+import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { evaluateLearningFeatureAccess } from '@/onboarding/first-run-policy';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
-
-export function isOfflineAiInstalled(
-  phase: ModelInstallationPhase,
-  verification: ModelInstallationVerification
-) {
-  return verification === 'complete' && phase === 'ready';
-}
+import { toast } from '@/utils/app-toast';
 
 export function useLearningFeatureAccess() {
-  const installationPhase = useModelInstallationStore((state) => state.phase);
-  const installationVerification = useModelInstallationStore(
-    (state) => state.verification
-  );
+  const {
+    availability,
+    available: modelInstalled,
+    retryVerification,
+  } = useOfflineAiCapability();
   const openImportMaterial = useAppOverlayStore(
     (state) => state.openImportMaterial
   );
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
   const showActionSheet = useAppOverlayStore((state) => state.showActionSheet);
-  const modelInstalled = isOfflineAiInstalled(
-    installationPhase,
-    installationVerification
-  );
 
   const ensureAccess = useCallback(
     ({
@@ -62,6 +49,29 @@ export function useLearningFeatureAccess() {
         return false;
       }
 
+      if (availability === 'checking') {
+        toast.info('Checking offline AI', {
+          description:
+            'LearnGuide is confirming the private AI resources stored on this device.',
+        });
+        return false;
+      }
+
+      if (availability === 'error') {
+        showActionSheet({
+          actionLabel: 'Check again',
+          description:
+            'LearnGuide could not confirm the offline AI resources. Check them again without leaving this page.',
+          onAction: () => {
+            void retryVerification().catch(() => {
+              toast.error('Offline AI could not be checked');
+            });
+          },
+          title: 'Check offline AI',
+        });
+        return false;
+      }
+
       showActionSheet({
         actionLabel: 'Download offline AI',
         description:
@@ -71,7 +81,14 @@ export function useLearningFeatureAccess() {
       });
       return false;
     },
-    [modelInstalled, openImportMaterial, openOfflineAi, showActionSheet]
+    [
+      availability,
+      modelInstalled,
+      openImportMaterial,
+      openOfflineAi,
+      retryVerification,
+      showActionSheet,
+    ]
   );
 
   return { ensureAccess, modelInstalled };

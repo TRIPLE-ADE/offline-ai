@@ -1,17 +1,29 @@
+import { Directory, Paths } from 'expo-file-system';
 import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
 import { models, ResourceFetcherUtils } from 'react-native-executorch';
 
 import {
-  completeModelInstallationVerification,
-  reconcileModelInstallationState,
+  beginModelResourceVerification,
+  completeModelResourceVerification,
+  failModelResourceVerification,
 } from '@/ai/model-installation-state';
 import { hasEveryDownloadedResource } from '@/ai/offline-resource-files';
-import { useRuntimeStore } from '@/stores/runtime-store';
 
 type ResourceGroups = {
   embedding: string[];
   generation: string[];
 };
+
+export type OfflineResourceInspection = {
+  embeddingInstalled: boolean;
+  generationInstalled: boolean;
+};
+
+const RESOURCE_DIRECTORY_NAME = 'react-native-executorch';
+const RESOURCE_INSPECTION_ERROR =
+  'LearnGuide could not check the offline AI resources on this device.';
+
+let inspectionPromise: Promise<OfflineResourceInspection> | null = null;
 
 export function getOfflineResourceGroups(): ResourceGroups {
   const embedding = models.text_embedding.all_minilm_l6_v2();
@@ -27,15 +39,17 @@ export function getOfflineResourceGroups(): ResourceGroups {
   };
 }
 
-export async function inspectOfflineResources() {
-  const groups = getOfflineResourceGroups();
-  let downloaded: string[] = [];
-
-  try {
-    downloaded = await ExpoResourceFetcher.listDownloadedFiles();
-  } catch {
-    // The resource directory is created lazily on the first download.
+async function listDownloadedResources() {
+  const directory = new Directory(Paths.document, RESOURCE_DIRECTORY_NAME);
+  if (!directory.exists) {
+    return [];
   }
+  return ExpoResourceFetcher.listDownloadedFiles();
+}
+
+async function performOfflineResourceInspection() {
+  const groups = getOfflineResourceGroups();
+  const downloaded = await listDownloadedResources();
 
   const embeddingInstalled = hasEveryDownloadedResource(
     downloaded,
@@ -48,32 +62,36 @@ export async function inspectOfflineResources() {
     ResourceFetcherUtils.getFilenameFromUri
   );
 
-  const store = useRuntimeStore.getState();
-  if (embeddingInstalled && store.embedding.phase !== 'ready') {
-    store.setEmbedding({ phase: 'downloaded', progress: 1, error: null });
-  } else if (!embeddingInstalled && store.embedding.phase === 'downloaded') {
-    store.setEmbedding({
-      phase: 'not_downloaded',
-      progress: 0,
-      error: null,
-    });
-  }
-  if (generationInstalled && store.generation.phase !== 'ready') {
-    store.setGeneration({ phase: 'downloaded', progress: 1, error: null });
-  } else if (!generationInstalled && store.generation.phase === 'downloaded') {
-    store.setGeneration({
-      phase: 'not_downloaded',
-      progress: 0,
-      error: null,
-    });
-  }
-
-  const installation = reconcileModelInstallationState(
+  completeModelResourceVerification(
     embeddingInstalled && generationInstalled
   );
-  completeModelInstallationVerification();
 
-  return { embeddingInstalled, generationInstalled, installation };
+  return { embeddingInstalled, generationInstalled };
+}
+
+export function inspectOfflineResources() {
+  if (inspectionPromise) {
+    return inspectionPromise;
+  }
+
+  beginModelResourceVerification();
+  const work = performOfflineResourceInspection()
+    .catch((error: unknown) => {
+      const message =
+        error instanceof Error && error.message
+          ? `${RESOURCE_INSPECTION_ERROR} ${error.message}`
+          : RESOURCE_INSPECTION_ERROR;
+      failModelResourceVerification(message);
+      throw error;
+    })
+    .finally(() => {
+      if (inspectionPromise === work) {
+        inspectionPromise = null;
+      }
+    });
+
+  inspectionPromise = work;
+  return work;
 }
 
 export async function getOfflineResourceSizes() {

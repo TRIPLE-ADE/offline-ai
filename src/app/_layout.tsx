@@ -18,10 +18,6 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { initializeExecutorch } from "@/ai/initialize-executorch";
-import {
-  failModelInstallationVerification,
-  useModelInstallationStore,
-} from "@/ai/model-installation-state";
 import { inspectOfflineResources } from "@/ai/offline-resource-state";
 import { AppOverlays } from "@/components/app-overlays";
 import { AppToaster } from "@/components/foundation/app-toaster";
@@ -38,7 +34,6 @@ void SplashScreen.preventAutoHideAsync();
 initializeExecutorch();
 initializeAppearancePreference();
 
-const RESOURCE_VERIFICATION_TIMEOUT_MS = 2_000;
 const LEARNING_OVERVIEW_TABLES = new Set([
   "materials",
   "quiz_attempts",
@@ -105,9 +100,6 @@ function AppNavigator() {
 
 export default function RootLayout() {
   const appearance = useResolvedAppearance();
-  const resourceCheckComplete = useModelInstallationStore(
-    (state) => state.verification === "complete",
-  );
   const [fontsLoaded] = useFonts({
     [Fonts.regular]: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
     [Fonts.medium]: require("@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf"),
@@ -129,32 +121,16 @@ export default function RootLayout() {
   };
 
   useEffect(() => {
-    if (fontsLoaded && resourceCheckComplete) {
+    if (fontsLoaded) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, resourceCheckComplete]);
+  }, [fontsLoaded]);
 
   useEffect(() => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        failModelInstallationVerification();
-      }
-    }, RESOURCE_VERIFICATION_TIMEOUT_MS);
-
-    void inspectOfflineResources()
-      .catch(() => {
-        failModelInstallationVerification();
-      })
-      .finally(() => {
-        settled = true;
-        clearTimeout(timeout);
-      });
-
-    return () => clearTimeout(timeout);
+    void inspectOfflineResources().catch(() => undefined);
   }, []);
 
-  if (!fontsLoaded || !resourceCheckComplete) {
+  if (!fontsLoaded) {
     return null;
   }
 

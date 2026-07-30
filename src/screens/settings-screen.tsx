@@ -12,10 +12,11 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { Brand } from '@/constants/brand';
 import { MaterialRepository } from '@/db/repositories/material-repository';
+import type { OfflineAiAvailability } from '@/ai/model-capability';
+import type { ModelInstallationPhase } from '@/ai/model-installation-state';
+import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { useTheme } from '@/hooks/use-theme';
-import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import { offlineVectorIndex } from '@/retrieval/offline-vector-index';
-import { useModelInstallationStore } from '@/ai/model-installation-state';
 import {
   showActionSheet,
   useAppOverlayStore,
@@ -38,17 +39,22 @@ const APPEARANCE_OPTIONS: { label: string; value: AppearancePreference }[] = [
 ];
 
 function offlineAiCopy(
-  phase: ReturnType<typeof useModelInstallationStore.getState>['phase'],
-  verified: boolean,
-  installed: boolean
+  phase: ModelInstallationPhase,
+  availability: OfflineAiAvailability
 ) {
-  if (!verified) {
+  if (availability === 'checking') {
     return {
       badge: 'Checking resources',
       description: 'Confirming the private AI resources stored on this device.',
     };
   }
-  if (installed) {
+  if (availability === 'error') {
+    return {
+      badge: 'Check needed',
+      description: 'LearnGuide could not confirm the stored offline AI resources.',
+    };
+  }
+  if (availability === 'available') {
     return {
       badge: 'Ready offline',
       description: 'Material search and explanations are ready without internet.',
@@ -56,8 +62,9 @@ function offlineAiCopy(
   }
   if (phase === 'downloading' || phase === 'retrying') {
     return {
-      badge: phase === 'retrying' ? 'Retrying download' : 'Downloading',
-      description: 'The offline resources are downloading. You can keep exploring the app.',
+      badge: 'Download incomplete',
+      description:
+        'The previous download did not finish. Retry whenever it suits you.',
     };
   }
   if (phase === 'failed') {
@@ -114,21 +121,26 @@ export default function SettingsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const theme = useTheme();
-  const modelInstallationPhase = useModelInstallationStore((state) => state.phase);
-  const modelInstallationVerification = useModelInstallationStore(
-    (state) => state.verification
-  );
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
-  const resourceCheckComplete = modelInstallationVerification === 'complete';
-  const ready = isOfflineAiInstalled(
-    modelInstallationPhase,
-    modelInstallationVerification
-  );
+  const {
+    availability,
+    available: ready,
+    checking,
+    installationPhase: modelInstallationPhase,
+    retryVerification,
+  } = useOfflineAiCapability();
   const resourceCopy = offlineAiCopy(
     modelInstallationPhase,
-    resourceCheckComplete,
-    ready
+    availability
   );
+  const handleResourceAction =
+    availability === 'error'
+      ? () => {
+          void retryVerification().catch(() => {
+            toast.error('Offline AI could not be checked');
+          });
+        }
+      : openOfflineAi;
   const materials = useLearningOverviewStore((state) => state.materials);
   const materialStorage = useMemo(() => {
     const bytes = materials.reduce(
@@ -204,11 +216,23 @@ export default function SettingsScreen() {
                 borderTopColor: theme.primary,
               },
             ]}>
-            <View style={styles.resourceHeading}>
-              <View style={[styles.resourceIcon, { backgroundColor: ready ? theme.successSoft : theme.primarySoft }]}>
-                <Ionicons
-                  name={ready ? 'checkmark-circle-outline' : 'download-outline'}
-                  color={ready ? theme.success : theme.primary}
+              <View style={styles.resourceHeading}>
+                <View style={[styles.resourceIcon, { backgroundColor: ready ? theme.successSoft : theme.primarySoft }]}>
+                  <Ionicons
+                  name={
+                    ready
+                      ? 'checkmark-circle-outline'
+                      : availability === 'error'
+                        ? 'alert-circle-outline'
+                        : 'download-outline'
+                  }
+                  color={
+                    ready
+                      ? theme.success
+                      : availability === 'error'
+                        ? theme.danger
+                        : theme.primary
+                  }
                   size={28}
                 />
               </View>
@@ -221,15 +245,27 @@ export default function SettingsScreen() {
             </View>
             <StatusBadge
               label={resourceCopy.badge}
-              tone={ready ? 'offline' : 'working'}
+              tone={
+                ready
+                  ? 'offline'
+                  : availability === 'error'
+                    ? 'error'
+                    : checking
+                      ? 'neutral'
+                      : 'working'
+              }
             />
-            {resourceCheckComplete ? (
+            {!checking ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={openOfflineAi}
+                onPress={handleResourceAction}
                 style={styles.manageAction}>
                 <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                  {ready ? 'Manage offline resources' : 'Download or retry'}
+                  {ready
+                    ? 'Manage offline resources'
+                    : availability === 'error'
+                      ? 'Check again'
+                      : 'Download or retry'}
                 </ThemedText>
                 <Ionicons name="arrow-forward" color={theme.primary} size={18} />
               </Pressable>

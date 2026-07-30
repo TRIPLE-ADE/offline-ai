@@ -12,11 +12,11 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Spacing, TouchTarget } from "@/constants/theme";
 import type { Material, Topic } from "@/db/types";
-import { useModelInstallationStore } from "@/ai/model-installation-state";
+import { useOfflineAiCapability } from "@/hooks/use-offline-ai-capability";
 import { useTheme } from "@/hooks/use-theme";
-import { isOfflineAiInstalled } from "@/hooks/use-learning-feature-access";
 import { useAppOverlayStore } from "@/stores/app-overlay-store";
 import { useLearningOverviewStore } from "@/stores/learning-overview-store";
+import { toast } from "@/utils/app-toast";
 
 type StudyItem = { material: Material; topic: Topic };
 
@@ -59,12 +59,12 @@ export default function StudyScreen() {
     (state) => state.openImportMaterial,
   );
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
-  const modelInstallationPhase = useModelInstallationStore(
-    (state) => state.phase,
-  );
-  const modelInstallationVerification = useModelInstallationStore(
-    (state) => state.verification,
-  );
+  const {
+    availability,
+    available: offlineReady,
+    checking: modelStatusChecking,
+    retryVerification,
+  } = useOfflineAiCapability();
   const overviewMaterials = useLearningOverviewStore(
     (state) => state.materials,
   );
@@ -106,11 +106,14 @@ export default function StudyScreen() {
         .slice(0, 3),
     [items],
   );
-  const modelStatusChecked = modelInstallationVerification === "complete";
-  const offlineReady = isOfflineAiInstalled(
-    modelInstallationPhase,
-    modelInstallationVerification,
-  );
+  const handleModelAction =
+    availability === "error"
+      ? () => {
+          void retryVerification().catch(() => {
+            toast.error("Offline AI could not be checked");
+          });
+        }
+      : openOfflineAi;
   const copy = recommendation ? recommendationCopy(recommendation.topic) : null;
   const recommendationTopicCount = recommendation
     ? items.filter((item) => item.material.id === recommendation.material.id).length
@@ -140,15 +143,19 @@ export default function StudyScreen() {
           </ThemedText>
           <StatusBadge
             label={
-              !modelStatusChecked
+              modelStatusChecking
                 ? "Checking offline AI…"
+                : availability === "error"
+                  ? "Offline AI check needs attention"
                 : offlineReady
                 ? "Private and ready offline"
                 : "Offline AI available when you’re ready"
             }
             tone={
-              !modelStatusChecked
+              modelStatusChecking
                 ? "neutral"
+                : availability === "error"
+                  ? "error"
                 : offlineReady
                   ? "offline"
                   : "working"
@@ -163,12 +170,14 @@ export default function StudyScreen() {
             icon="book-outline"
             onAction={openImportMaterial}
             secondaryLabel={
-              !modelStatusChecked || offlineReady
+              modelStatusChecking || offlineReady
                 ? undefined
-                : "Download offline AI"
+                : availability === "error"
+                  ? "Check offline AI"
+                  : "Download offline AI"
             }
             onSecondary={
-              !modelStatusChecked || offlineReady ? undefined : openOfflineAi
+              modelStatusChecking || offlineReady ? undefined : handleModelAction
             }
             title="Your next study action will appear here"
           />

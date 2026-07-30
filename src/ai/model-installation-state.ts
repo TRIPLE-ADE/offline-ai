@@ -2,9 +2,9 @@ import { File, Paths } from 'expo-file-system';
 import { create } from 'zustand';
 
 import {
-  reconcileModelInstallationPhase,
   type ModelInstallationPhase,
 } from '@/onboarding/first-run-policy';
+import type { OfflineAiAvailability } from '@/ai/model-capability';
 
 export type { ModelInstallationPhase } from '@/onboarding/first-run-policy';
 
@@ -13,8 +13,6 @@ export type ModelInstallationState = {
   message: string | null;
   updatedAt: string;
 };
-
-export type ModelInstallationVerification = 'pending' | 'complete';
 
 const MODEL_INSTALLATION_STATE = new File(
   Paths.document,
@@ -66,14 +64,18 @@ function readPersistedState(): ModelInstallationState {
 }
 
 type ModelInstallationStore = ModelInstallationState & {
-  verification: ModelInstallationVerification;
+  availability: OfflineAiAvailability;
+  availabilityMessage: string | null;
+  availabilityUpdatedAt: string;
   setState: (state: ModelInstallationState) => void;
 };
 
 export const useModelInstallationStore = create<ModelInstallationStore>(
   (set) => ({
     ...readPersistedState(),
-    verification: 'pending',
+    availability: 'checking',
+    availabilityMessage: null,
+    availabilityUpdatedAt: initialState.updatedAt,
     setState: (state) => set(state),
   })
 );
@@ -101,55 +103,25 @@ export function saveModelInstallationState(
   return state;
 }
 
-export function completeModelInstallationVerification() {
-  useModelInstallationStore.setState({ verification: 'complete' });
-}
-
-export function failModelInstallationVerification() {
-  const current = getModelInstallationState();
-  const installationCouldBeIncomplete =
-    current.phase === 'ready' ||
-    current.phase === 'downloading' ||
-    current.phase === 'retrying';
-
+export function beginModelResourceVerification() {
   useModelInstallationStore.setState({
-    ...current,
-    message: installationCouldBeIncomplete
-      ? 'The offline AI resources could not be checked. Retry from Settings when you are ready.'
-      : current.message,
-    phase: installationCouldBeIncomplete ? 'failed' : current.phase,
-    updatedAt: new Date().toISOString(),
-    verification: 'complete',
+    availability: 'checking',
+    availabilityMessage: null,
   });
 }
 
-export function reconcileModelInstallationState(resourcesInstalled: boolean) {
-  const current = getModelInstallationState();
-  const nextPhase = reconcileModelInstallationPhase(
-    current.phase,
-    resourcesInstalled
-  );
+export function completeModelResourceVerification(resourcesInstalled: boolean) {
+  useModelInstallationStore.setState({
+    availability: resourcesInstalled ? 'available' : 'unavailable',
+    availabilityMessage: null,
+    availabilityUpdatedAt: new Date().toISOString(),
+  });
+}
 
-  if (nextPhase === 'ready') {
-    return saveModelInstallationState('ready');
-  }
-
-  if (
-    nextPhase === 'failed' &&
-    (current.phase === 'downloading' || current.phase === 'retrying')
-  ) {
-    return saveModelInstallationState(
-      'failed',
-      'The previous download was interrupted. Ready when you are to retry.'
-    );
-  }
-
-  if (nextPhase === 'failed' && current.phase === 'ready') {
-    return saveModelInstallationState(
-      'failed',
-      'The offline AI resources are incomplete. Download them again when you are ready.'
-    );
-  }
-
-  return current;
+export function failModelResourceVerification(message: string) {
+  useModelInstallationStore.setState({
+    availability: 'error',
+    availabilityMessage: message,
+    availabilityUpdatedAt: new Date().toISOString(),
+  });
 }

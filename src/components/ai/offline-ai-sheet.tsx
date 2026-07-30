@@ -11,16 +11,13 @@ import { embeddingRuntime } from '@/ai/embedding-runtime';
 import { generationRuntime } from '@/ai/generation-runtime';
 import {
   saveModelInstallationState,
-  useModelInstallationStore,
 } from '@/ai/model-installation-state';
 import { inspectOfflineResources } from '@/ai/offline-resource-state';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ProgressBar } from '@/components/foundation/progress-bar';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
-import {
-  isOfflineAiInstalled,
-} from '@/hooks/use-learning-feature-access';
+import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { useRuntimeStore } from '@/stores/runtime-store';
@@ -36,20 +33,18 @@ export function OfflineAiSheet() {
   const close = useAppOverlayStore((state) => state.closeOfflineAi);
   const generation = useRuntimeStore((state) => state.generation);
   const embedding = useRuntimeStore((state) => state.embedding);
-  const installationPhase = useModelInstallationStore((state) => state.phase);
-  const installationMessage = useModelInstallationStore((state) => state.message);
-  const installationVerification = useModelInstallationStore(
-    (state) => state.verification
-  );
-  const installPromise = useRef<Promise<void> | null>(null);
-  const checking = installationVerification !== 'complete';
-  const installed = isOfflineAiInstalled(
+  const {
+    availability,
+    availabilityMessage,
+    available: installed,
+    checking,
+    installationMessage,
     installationPhase,
-    installationVerification
-  );
+    retryVerification,
+  } = useOfflineAiCapability();
+  const installPromise = useRef<Promise<void> | null>(null);
+  const verificationFailed = availability === 'error';
   const installing =
-    installationPhase === 'downloading' ||
-    installationPhase === 'retrying' ||
     generation.phase === 'loading' ||
     generation.phase === 'downloading' ||
     embedding.phase === 'loading' ||
@@ -85,6 +80,7 @@ export function OfflineAiSheet() {
         if (!embeddingInstalled || !generationInstalled) {
           throw new Error('The offline AI resources could not be verified.');
         }
+        saveModelInstallationState('ready');
         toast.success('Offline AI is ready', {
           description: 'Lessons, quizzes, summaries, and chat can now run privately.',
         });
@@ -104,6 +100,12 @@ export function OfflineAiSheet() {
     installPromise.current = work;
     return work;
   }, [close, installationPhase, installed]);
+
+  const retryCheck = useCallback(() => {
+    void retryVerification().catch(() => {
+      toast.error('Offline AI could not be checked');
+    });
+  }, [retryVerification]);
 
   return (
     <BottomSheet
@@ -125,8 +127,20 @@ export function OfflineAiSheet() {
             style={[styles.icon, { backgroundColor: theme.primarySoft }]}
           >
             <Ionicons
-              color={installed ? theme.success : theme.primary}
-              name={installed ? 'checkmark-circle' : 'hardware-chip-outline'}
+              color={
+                installed
+                  ? theme.success
+                  : verificationFailed
+                    ? theme.danger
+                    : theme.primary
+              }
+              name={
+                installed
+                  ? 'checkmark-circle'
+                  : verificationFailed
+                    ? 'alert-circle-outline'
+                    : 'hardware-chip-outline'
+              }
               size={30}
             />
           </View>
@@ -157,14 +171,18 @@ export function OfflineAiSheet() {
         ) : (
           <View style={styles.content}>
             <ThemedText type="heading">
-              {installationPhase === 'failed'
+              {verificationFailed
+                ? 'Check the stored resources'
+                : installationPhase === 'failed' ||
+                    installationPhase === 'downloading' ||
+                    installationPhase === 'retrying'
                 ? 'Ready to retry'
                 : 'Download when you are ready'}
             </ThemedText>
             <ThemedText themeColor="textSecondary">
-              The one-time download enables grounded lessons, quizzes, summaries,
-              and chat entirely on this device. You can dismiss this sheet and
-              continue exploring at any time.
+              {verificationFailed
+                ? 'Check the private AI files already stored on this device. If they are missing, LearnGuide will offer the download afterward.'
+                : 'The one-time download enables grounded lessons, quizzes, summaries, and chat entirely on this device. You can dismiss this sheet and continue exploring at any time.'}
             </ThemedText>
 
             {installing ? (
@@ -179,7 +197,7 @@ export function OfflineAiSheet() {
                     : 'Preparing download…'}
                 </ThemedText>
               </View>
-            ) : installationMessage ? (
+            ) : availabilityMessage || installationMessage ? (
               <View
                 style={[
                   styles.note,
@@ -195,7 +213,7 @@ export function OfflineAiSheet() {
                   size={20}
                 />
                 <ThemedText type="small" style={styles.flex}>
-                  {installationMessage}
+                  {availabilityMessage ?? installationMessage}
                 </ThemedText>
               </View>
             ) : null}
@@ -205,12 +223,16 @@ export function OfflineAiSheet() {
               label={
                 installing
                   ? 'Downloading offline AI…'
-                  : installationPhase === 'failed'
+                  : verificationFailed
+                    ? 'Check again'
+                  : installationPhase === 'failed' ||
+                      installationPhase === 'downloading' ||
+                      installationPhase === 'retrying'
                     ? 'Retry download'
                     : 'Download offline AI'
               }
               loading={installing}
-              onPress={() => void install()}
+              onPress={verificationFailed ? retryCheck : () => void install()}
             />
             <PrimaryButton
               label={installing ? 'Continue exploring' : 'Not now'}

@@ -4,7 +4,6 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MaterialCard } from '@/components/foundation/material-card';
-import { useModelInstallationStore } from '@/ai/model-installation-state';
 import { BrandContext } from '@/components/brand/brand-context';
 import { FirstStudyPath } from '@/components/library/first-study-path';
 import { PrimaryButton } from '@/components/foundation/primary-button';
@@ -14,22 +13,24 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { Brand } from '@/constants/brand';
+import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { useTheme } from '@/hooks/use-theme';
-import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { useLearningOverviewStore } from '@/stores/learning-overview-store';
+import { toast } from '@/utils/app-toast';
 
 export default function HomeScreen() {
   const router = useRouter();
   const theme = useTheme();
   const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
-  const modelInstallationPhase = useModelInstallationStore(
-    (state) => state.phase
-  );
-  const modelInstallationVerification = useModelInstallationStore(
-    (state) => state.verification
-  );
+  const {
+    availability,
+    available: offlineReady,
+    checking: modelStatusChecking,
+    installationPhase: modelInstallationPhase,
+    retryVerification,
+  } = useOfflineAiCapability();
   const items = useLearningOverviewStore((state) => state.materials);
   const overviewStatus = useLearningOverviewStore((state) => state.status);
   const loading = overviewStatus === 'idle' || overviewStatus === 'loading';
@@ -46,15 +47,22 @@ export default function HomeScreen() {
     (sum, item) => sum + item.topics.filter((topic) => topic.status === 'completed').length,
     0
   );
-  const modelStatusChecked = modelInstallationVerification === 'complete';
-  const offlineReady = isOfflineAiInstalled(
-    modelInstallationPhase,
-    modelInstallationVerification
-  );
   const modelActionLabel =
-    modelInstallationPhase === 'failed'
+    availability === 'error'
+      ? 'Check offline AI'
+      : modelInstallationPhase === 'failed' ||
+          modelInstallationPhase === 'downloading' ||
+          modelInstallationPhase === 'retrying'
       ? 'Retry offline AI'
       : 'Download offline AI';
+  const handleModelAction =
+    availability === 'error'
+      ? () => {
+          void retryVerification().catch(() => {
+            toast.error('Offline AI could not be checked');
+          });
+        }
+      : openOfflineAi;
 
   return (
     <ThemedView style={styles.container}>
@@ -70,24 +78,28 @@ export default function HomeScreen() {
           <View style={styles.statusRow}>
             <StatusBadge
               label={
-                !modelStatusChecked
+                modelStatusChecking
                   ? 'Checking offline AI…'
+                  : availability === 'error'
+                    ? 'Offline AI check needs attention'
                   : offlineReady
                     ? 'Offline AI ready'
                     : 'AI available when you’re ready'
               }
               tone={
-                !modelStatusChecked
+                modelStatusChecking
                   ? 'neutral'
+                  : availability === 'error'
+                    ? 'error'
                   : offlineReady
                     ? 'offline'
                     : 'working'
               }
             />
-            {modelStatusChecked && !offlineReady ? (
+            {!modelStatusChecking && !offlineReady ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={openOfflineAi}
+                onPress={handleModelAction}
                 style={styles.setupLink}>
                 <ThemedText type="smallBold" style={{ color: theme.primary }}>
                   {modelActionLabel}
@@ -174,7 +186,7 @@ export default function HomeScreen() {
               downloadAiLabel={modelActionLabel}
               onImport={openImportMaterial}
               onDownloadAi={
-                !modelStatusChecked || offlineReady ? undefined : openOfflineAi
+                modelStatusChecking || offlineReady ? undefined : handleModelAction
               }
             />
           ) : (

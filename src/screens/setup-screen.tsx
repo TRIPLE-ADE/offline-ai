@@ -9,6 +9,7 @@ import { AccessibilityInfo, Animated, StyleSheet, View } from 'react-native';
 
 import { embeddingRuntime } from '@/ai/embedding-runtime';
 import { generationRuntime } from '@/ai/generation-runtime';
+import { isOfflineAiAvailable } from '@/ai/model-capability';
 import {
   saveModelInstallationState,
   useModelInstallationStore,
@@ -41,7 +42,6 @@ import { Brand } from '@/constants/brand';
 import { Radius, Spacing } from '@/constants/theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
-import { isOfflineAiInstalled } from '@/hooks/use-learning-feature-access';
 import {
   completeOnboarding,
   getOnboardingStep,
@@ -170,10 +170,7 @@ export default function SetupScreen() {
   const displayedInstallationPhase =
     previewStep === 'installing' ? 'installing' : installationPhase;
 
-  const allInstalled = isOfflineAiInstalled(
-    modelInstallation.phase,
-    modelInstallation.verification
-  );
+  const allInstalled = isOfflineAiAvailable(modelInstallation.availability);
   const connected = network.isConnected === true && network.isInternetReachable !== false;
   const readiness = evaluateReadiness(
     {
