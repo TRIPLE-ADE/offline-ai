@@ -2,6 +2,7 @@ import type { Message } from 'react-native-executorch';
 import type { z } from 'zod';
 
 import { generationRuntime } from '@/ai/generation-runtime';
+import type { AiOperationLease } from '@/ai/runtime-coordinator';
 
 export function extractJsonObject(text: string): unknown {
   const withoutFence = text
@@ -19,25 +20,29 @@ export function extractJsonObject(text: string): unknown {
 export async function generateValidatedObject<T>(
   messages: Message[],
   schema: z.ZodType<T>,
-  repairDescription: string
+  repairDescription: string,
+  lease: AiOperationLease
 ): Promise<T> {
-  const firstOutput = await generationRuntime.generate(messages);
+  const firstOutput = await generationRuntime.generate(messages, lease);
   const firstResult = parseWithSchema(firstOutput, schema);
   if (firstResult.success) {
     return firstResult.data;
   }
 
-  const repairedOutput = await generationRuntime.generate([
-    {
-      role: 'system',
-      content:
-        'Repair malformed JSON. Return one valid JSON object only, without markdown or commentary.',
-    },
-    {
-      role: 'user',
-      content: `${repairDescription}\n\nMalformed output:\n${firstOutput}`,
-    },
-  ]);
+  const repairedOutput = await generationRuntime.generate(
+    [
+      {
+        role: 'system',
+        content:
+          'Repair malformed JSON. Return one valid JSON object only, without markdown or commentary.',
+      },
+      {
+        role: 'user',
+        content: `${repairDescription}\n\nMalformed output:\n${firstOutput}`,
+      },
+    ],
+    lease
+  );
   const repairedResult = parseWithSchema(repairedOutput, schema);
   if (!repairedResult.success) {
     throw new Error(`The local model returned invalid structured output: ${repairedResult.error}`);

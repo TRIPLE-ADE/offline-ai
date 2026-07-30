@@ -2,22 +2,27 @@ import { OPSQLiteVectorStore } from '@react-native-rag/op-sqlite';
 import type { Embeddings, QueryResult } from 'react-native-rag';
 
 import { embeddingRuntime } from '@/ai/embedding-runtime';
+import type { AiOperationLease } from '@/ai/runtime-coordinator';
 import type { MaterialChunk } from '@/db/types';
 
 const VECTOR_DATABASE_NAME = 'offline-study-vectors.sqlite';
 
 class RuntimeEmbeddingsAdapter implements Embeddings {
+  constructor(
+    private readonly getActiveLease: () => AiOperationLease
+  ) {}
+
   async load() {
     await embeddingRuntime.load();
     return this;
   }
 
   async unload() {
-    embeddingRuntime.unload();
+    await embeddingRuntime.unload();
   }
 
   embed(text: string) {
-    return embeddingRuntime.embed(text);
+    return embeddingRuntime.embed(text, this.getActiveLease());
   }
 }
 
@@ -29,6 +34,38 @@ type IndexProgress = {
 class OfflineVectorIndex {
   private store: OPSQLiteVectorStore | null = null;
   private loadPromise: Promise<OPSQLiteVectorStore> | null = null;
+  private activeLease: AiOperationLease | null = null;
+
+  private getActiveLease() {
+    if (!this.activeLease) {
+      throw new Error('An AI operation lease is required for vector inference.');
+    }
+    return this.activeLease;
+  }
+
+  private async withLease<T>(
+    lease: AiOperationLease,
+    task: () => Promise<T>
+  ) {
+    lease.assertActive();
+    if (
+      this.activeLease &&
+      this.activeLease.operation.id !== lease.operation.id
+    ) {
+      throw new Error('Another vector operation is already active.');
+    }
+
+    this.activeLease = lease;
+    try {
+      const result = await task();
+      lease.assertActive();
+      return result;
+    } finally {
+      if (this.activeLease?.operation.id === lease.operation.id) {
+        this.activeLease = null;
+      }
+    }
+  }
 
   private async getStore() {
     if (this.store) {
@@ -40,7 +77,7 @@ class OfflineVectorIndex {
 
     const store = new OPSQLiteVectorStore({
       name: VECTOR_DATABASE_NAME,
-      embeddings: new RuntimeEmbeddingsAdapter(),
+      embeddings: new RuntimeEmbeddingsAdapter(() => this.getActiveLease()),
     });
 
     this.loadPromise = store
@@ -59,41 +96,54 @@ class OfflineVectorIndex {
   async replaceMaterial(
     materialId: string,
     chunks: MaterialChunk[],
+    lease: AiOperationLease,
     onProgress?: (progress: IndexProgress) => void
   ) {
-    const store = await this.getStore();
+    return this.withLease(lease, async () => {
+      const store = await this.getStore();
 
-    await store.delete({
-      predicate: (value) => value.metadata?.materialId === materialId,
-    });
-
-    for (const [index, chunk] of chunks.entries()) {
-      const embedding = await embeddingRuntime.embed(chunk.content);
-      await store.add({
-        id: chunk.id,
-        document: chunk.content,
-        embedding,
-        metadata: {
-          materialId,
-          ordinal: chunk.ordinal,
-          pageStart: chunk.pageStart,
-          pageEnd: chunk.pageEnd,
-          sectionTitle: chunk.sectionTitle,
-          contentHash: chunk.contentHash,
-        },
+      await store.delete({
+        predicate: (value) => value.metadata?.materialId === materialId,
       });
-      onProgress?.({ completed: index + 1, total: chunks.length });
-    }
+
+      for (const [index, chunk] of chunks.entries()) {
+        lease.assertActive();
+        const embedding = await embeddingRuntime.embed(chunk.content, lease);
+        await store.add({
+          id: chunk.id,
+          document: chunk.content,
+          embedding,
+          metadata: {
+            materialId,
+            ordinal: chunk.ordinal,
+            pageStart: chunk.pageStart,
+            pageEnd: chunk.pageEnd,
+            sectionTitle: chunk.sectionTitle,
+            contentHash: chunk.contentHash,
+          },
+        });
+        if (lease.isActive()) {
+          onProgress?.({ completed: index + 1, total: chunks.length });
+        }
+      }
+    });
   }
 
-  async queryMaterial(materialId: string, query: string, limit = 4): Promise<QueryResult[]> {
-    const store = await this.getStore();
-    const queryEmbedding = await embeddingRuntime.embed(query);
+  async queryMaterial(
+    materialId: string,
+    query: string,
+    lease: AiOperationLease,
+    limit = 4
+  ): Promise<QueryResult[]> {
+    return this.withLease(lease, async () => {
+      const store = await this.getStore();
+      const queryEmbedding = await embeddingRuntime.embed(query, lease);
 
-    return store.query({
-      queryEmbedding,
-      nResults: limit,
-      predicate: (value) => value.metadata?.materialId === materialId,
+      return store.query({
+        queryEmbedding,
+        nResults: limit,
+        predicate: (value) => value.metadata?.materialId === materialId,
+      });
     });
   }
 

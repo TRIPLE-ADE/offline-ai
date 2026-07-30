@@ -7,7 +7,11 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Elevation, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import type { RuntimeState } from '@/stores/runtime-store';
+import {
+  isRuntimeBusy,
+  isRuntimeLoaded,
+  type RuntimeState,
+} from '@/stores/runtime-store';
 
 type RuntimeCardProps = {
   title: string;
@@ -25,22 +29,23 @@ export function RuntimeCard({
   onAction,
 }: RuntimeCardProps) {
   const theme = useTheme();
-  const isBusy = state.phase === 'downloading' || state.phase === 'loading';
-  const isReady = state.phase === 'ready';
+  const isBusy = isRuntimeBusy(state);
+  const isReady = isRuntimeLoaded(state);
+  const isLoading = state.residency === 'loading';
   const status =
-    state.phase === 'not_downloaded'
-      ? 'Not installed'
-      : state.phase === 'downloading'
-        ? `Downloading · ${Math.round(state.progress * 100)}%`
-        : state.phase === 'loading'
-          ? 'Verifying on this device'
-          : state.phase === 'ready'
-            ? 'Ready offline'
-            : state.phase === 'downloaded'
-              ? 'Installed · loads when needed'
-              : state.phase === 'error'
-                ? 'Installation needs attention'
-                : 'In use';
+    state.activity === 'interrupting'
+      ? 'Stopping current operation'
+      : state.activity === 'running'
+        ? 'In use'
+        : state.residency === 'unloaded'
+          ? 'Not loaded'
+          : state.residency === 'loading'
+            ? `Loading · ${Math.round(state.progress * 100)}%`
+            : state.residency === 'loaded'
+              ? 'Loaded in memory'
+              : state.residency === 'unloading'
+                ? 'Releasing memory'
+                : 'Runtime needs attention';
 
   return (
     <ThemedView
@@ -59,7 +64,7 @@ export function RuntimeCard({
             { backgroundColor: isReady ? theme.successSoft : theme.primarySoft },
           ]}>
           <Ionicons
-            name={isReady ? 'checkmark' : 'download-outline'}
+            name={isReady ? 'checkmark' : 'hardware-chip-outline'}
             color={isReady ? theme.success : theme.primary}
             size={22}
           />
@@ -76,16 +81,16 @@ export function RuntimeCard({
       <ThemedText type="smallBold" style={{ color: isReady ? theme.success : theme.text }}>
         {status}
       </ThemedText>
-      {isBusy ? (
+      {isLoading ? (
         <ProgressBar
-          accessibilityLabel={`${title} download progress`}
+          accessibilityLabel={`${title} load progress`}
           value={state.progress}
         />
       ) : null}
       {state.error ? (
         <View style={[styles.error, { backgroundColor: theme.dangerSoft }]}>
           <ThemedText type="small" style={{ color: theme.danger }}>
-            The download could not be completed. Check your connection and available storage, then retry.
+            {state.error}
           </ThemedText>
         </View>
       ) : null}

@@ -45,10 +45,8 @@ export function OfflineAiSheet() {
   const installPromise = useRef<Promise<void> | null>(null);
   const verificationFailed = availability === 'error';
   const installing =
-    generation.phase === 'loading' ||
-    generation.phase === 'downloading' ||
-    embedding.phase === 'loading' ||
-    embedding.phase === 'downloading';
+    generation.residency === 'loading' ||
+    embedding.residency === 'loading';
   const progress = useMemo(
     () =>
       installed

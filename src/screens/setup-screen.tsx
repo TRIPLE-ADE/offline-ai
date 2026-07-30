@@ -59,7 +59,11 @@ import {
   FALLBACK_DOWNLOAD_BYTES,
   formatBytes,
 } from '@/onboarding/readiness';
-import { useRuntimeStore, type RuntimeState } from '@/stores/runtime-store';
+import {
+  isRuntimeLoaded,
+  useRuntimeStore,
+  type RuntimeState,
+} from '@/stores/runtime-store';
 
 const FALLBACK_EMBEDDING_BYTES = 120_000_000;
 const FALLBACK_GENERATION_BYTES = FALLBACK_DOWNLOAD_BYTES - FALLBACK_EMBEDDING_BYTES;
@@ -105,12 +109,10 @@ function getPreviewStep(value: string | string[] | undefined) {
     : null;
 }
 
-function isInstalled(state: RuntimeState) {
-  return state.phase === 'ready' || state.phase === 'downloaded';
-}
-
 function resourceProgress(state: RuntimeState) {
-  return isInstalled(state) ? 1 : Math.max(0, Math.min(1, state.progress));
+  return isRuntimeLoaded(state)
+    ? 1
+    : Math.max(0, Math.min(1, state.progress));
 }
 
 function installationError(
@@ -483,7 +485,8 @@ export default function SetupScreen() {
       ? 2
       : installationPhase === 'preparing'
       ? 3
-      : embedding.phase === 'loading' || generation.phase === 'loading'
+      : embedding.residency === 'loading' ||
+          generation.residency === 'loading'
         ? 2
         : 1;
 

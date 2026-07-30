@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { runtimeCoordinator } from '@/ai/runtime-coordinator';
 import { MaterialChunkRepository } from '@/db/repositories/material-chunk-repository';
 import { MaterialRepository } from '@/db/repositories/material-repository';
 import type { Material, MaterialStatus } from '@/db/types';
@@ -77,10 +78,22 @@ class MaterialProcessingService {
 
       await setStatus('indexing', 'Loading MiniLM and preparing the local vector index…');
       const storedChunks = await chunks.listForMaterial(materialId);
-      await offlineVectorIndex.replaceMaterial(materialId, storedChunks, ({ completed, total }) => {
-        const message = `Embedding source passage ${completed} of ${total}…`;
-        emit({ status: 'indexing', message });
-      });
+      await runtimeCoordinator.run(
+        {
+          kind: 'ingesting',
+          owner: { type: 'material', id: materialId },
+        },
+        (lease) =>
+          offlineVectorIndex.replaceMaterial(
+            materialId,
+            storedChunks,
+            lease,
+            ({ completed, total }) => {
+              const message = `Embedding source passage ${completed} of ${total}…`;
+              emit({ status: 'indexing', message });
+            }
+          )
+      );
 
       await chunks.markMaterialIndexed(materialId);
 

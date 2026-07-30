@@ -1,6 +1,12 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { generationRuntime } from '@/ai/generation-runtime';
+import {
+  isAiOperationCancelledError,
+  runtimeCoordinator,
+  type AiOperationLease,
+} from '@/ai/runtime-coordinator';
 import { ArtifactRepository } from '@/db/repositories/artifact-repository';
 import { MaterialChunkRepository } from '@/db/repositories/material-chunk-repository';
 import { MaterialRepository } from '@/db/repositories/material-repository';
@@ -34,7 +40,10 @@ function formatChunks(chunks: MaterialChunk[]) {
     .join('\n\n');
 }
 
-async function generateCandidateGroup(chunks: MaterialChunk[]) {
+async function generateCandidateGroup(
+  chunks: MaterialChunk[],
+  lease: AiOperationLease
+) {
   return generateValidatedObject(
     [
       {
@@ -55,11 +64,15 @@ ${formatChunks(chunks)}`,
       },
     ],
     topicRoadmapSchema,
-    'Repair this topic candidate JSON. Keep only title, summary, and valid sourceChunkIds.'
+    'Repair this topic candidate JSON. Keep only title, summary, and valid sourceChunkIds.',
+    lease
   );
 }
 
-async function consolidateCandidates(candidates: TopicDraft[]) {
+async function consolidateCandidates(
+  candidates: TopicDraft[],
+  lease: AiOperationLease
+) {
   return generateValidatedObject(
     [
       {
@@ -80,7 +93,8 @@ ${JSON.stringify(candidates)}`,
       },
     ],
     topicRoadmapSchema,
-    'Repair this roadmap JSON. It must contain 1–24 topics with valid title, summary, and sourceChunkIds.'
+    'Repair this roadmap JSON. It must contain 1–24 topics with valid title, summary, and sourceChunkIds.',
+    lease
   );
 }
 
@@ -142,71 +156,98 @@ class TopicRoadmapService {
       throw new Error('This material has no stored source passages.');
     }
 
-    await materials.updateStatus(
-      materialId,
-      'generating_topics',
-      'Gemma is organizing the source passages into a learning roadmap…'
-    );
-
-    let drafts: TopicDraft[];
     try {
-      const candidates: TopicDraft[] = [];
-      for (const group of chunkGroups(chunks)) {
-        try {
-          const generated = await generateCandidateGroup(group);
-          candidates.push(...generated.topics);
-        } catch {
-          candidates.push(...buildDeterministicTopicDrafts(group));
+      return await runtimeCoordinator.run(
+        {
+          kind: 'generating-roadmap',
+          owner: { type: 'material', id: materialId },
+          interrupt: () => generationRuntime.interrupt(),
+        },
+        async (lease) => {
+          await materials.updateStatus(
+            materialId,
+            'generating_topics',
+            'Gemma is organizing the source passages into a learning roadmap…'
+          );
+
+          const candidates: TopicDraft[] = [];
+          for (const group of chunkGroups(chunks)) {
+            try {
+              const generated = await generateCandidateGroup(group, lease);
+              candidates.push(...generated.topics);
+            } catch {
+              lease.assertActive();
+              candidates.push(...buildDeterministicTopicDrafts(group));
+            }
+          }
+          try {
+            const consolidated = await consolidateCandidates(candidates, lease);
+            candidates.splice(0, candidates.length, ...consolidated.topics);
+          } catch {
+            lease.assertActive();
+          }
+
+          const coveredDrafts = normalizeAndCover(candidates, chunks);
+          const topics = coveredDrafts.map((draft, position) => ({
+            id: Crypto.randomUUID(),
+            materialId,
+            position,
+            title: draft.title,
+            summary: draft.summary,
+            sourceChunkIds: draft.sourceChunkIds,
+          }));
+
+          if (topics.length === 0) {
+            await materials.updateStatus(
+              materialId,
+              'ready',
+              'The source index is ready, but no roadmap could be produced.'
+            );
+            throw new Error('No grounded topics could be produced.');
+          }
+
+          lease.assertActive();
+          await topicRepository.replaceForMaterial(materialId, topics);
+          lease.assertActive();
+          await artifactRepository.create({
+            materialId,
+            kind: 'topic_map',
+            payload: {
+              schemaVersion: 1,
+              topics: coveredDrafts,
+              coveredChunkCount: new Set(
+                coveredDrafts.flatMap((topic) => topic.sourceChunkIds)
+              ).size,
+            },
+            promptVersion: PROMPT_VERSION,
+            modelVersion: MODEL_VERSION,
+          });
+          lease.assertActive();
+          await materials.updateStatus(
+            materialId,
+            'ready',
+            `Roadmap ready with ${topics.length} grounded topics.`
+          );
+          return topicRepository.listForMaterial(materialId);
         }
-      }
-      try {
-        drafts = (await consolidateCandidates(candidates)).topics;
-      } catch {
-        drafts = candidates;
-      }
-    } catch {
-      drafts = buildDeterministicTopicDrafts(chunks);
-    }
-
-    const coveredDrafts = normalizeAndCover(drafts, chunks);
-    const topics = coveredDrafts.map((draft, position) => ({
-      id: Crypto.randomUUID(),
-      materialId,
-      position,
-      title: draft.title,
-      summary: draft.summary,
-      sourceChunkIds: draft.sourceChunkIds,
-    }));
-
-    if (topics.length === 0) {
-      await materials.updateStatus(
-        materialId,
-        'ready',
-        'The source index is ready, but no roadmap could be produced.'
       );
-      throw new Error('No grounded topics could be produced.');
+    } catch (error) {
+      if (isAiOperationCancelledError(error)) {
+        await materials.updateStatus(
+          materialId,
+          'ready',
+          'Roadmap generation stopped. Your offline search remains ready.'
+        );
+      }
+      throw error;
     }
+  }
 
-    await topicRepository.replaceForMaterial(materialId, topics);
-    await artifactRepository.create({
-      materialId,
-      kind: 'topic_map',
-      payload: {
-        schemaVersion: 1,
-        topics: coveredDrafts,
-        coveredChunkCount: new Set(
-          coveredDrafts.flatMap((topic) => topic.sourceChunkIds)
-        ).size,
-      },
-      promptVersion: PROMPT_VERSION,
-      modelVersion: MODEL_VERSION,
+  stop(materialId: string) {
+    return runtimeCoordinator.cancel('generating-roadmap', {
+      type: 'material',
+      id: materialId,
     });
-    await materials.updateStatus(
-      materialId,
-      'ready',
-      `Roadmap ready with ${topics.length} grounded topics.`
-    );
-    return topicRepository.listForMaterial(materialId);
   }
 }
 

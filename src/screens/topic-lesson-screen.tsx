@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 
-import { generationRuntime } from "@/ai/generation-runtime";
+import { isAiOperationCancelledError } from "@/ai/runtime-coordinator";
 import { CitationControl } from "@/components/foundation/citation-control";
 import { PrimaryButton } from "@/components/foundation/primary-button";
 import { StatePanel } from "@/components/foundation/state-panel";
@@ -80,7 +80,10 @@ export default function TopicLessonScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load]),
+      return () => {
+        lessonService.stop(topicId);
+      };
+    }, [load, topicId]),
   );
 
   const handleGenerate = async () => {
@@ -97,12 +100,14 @@ export default function TopicLessonScreen() {
       }));
       await load();
     } catch (caught) {
-      setError(
-        userFacingError(
-          caught,
-          "This lesson could not be completed. Retry when you are ready.",
-        ),
-      );
+      if (!isAiOperationCancelledError(caught)) {
+        setError(
+          userFacingError(
+            caught,
+            "This lesson could not be completed. Retry when you are ready.",
+          ),
+        );
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -172,8 +177,8 @@ export default function TopicLessonScreen() {
               disabled={isGenerating}
               label={
                 isGenerating
-                  ? generation.phase === "downloading"
-                    ? `Installing offline AI · ${Math.round(generation.progress * 100)}%`
+                  ? generation.residency === "loading"
+                    ? `Preparing offline AI · ${Math.round(generation.progress * 100)}%`
                     : "Generating your lesson…"
                   : error
                     ? "Retry lesson"
@@ -186,10 +191,14 @@ export default function TopicLessonScreen() {
               }
               onPress={() => void handleGenerate()}
             />
-            {isGenerating && generation.phase === "generating" ? (
+            {isGenerating ? (
               <PrimaryButton
-                label="Stop generation"
-                onPress={() => generationRuntime.interrupt()}
+                label={
+                  generation.activity === "running"
+                    ? "Stop generation"
+                    : "Stop preparation"
+                }
+                onPress={() => lessonService.stop(topicId)}
                 variant="secondary"
               />
             ) : null}

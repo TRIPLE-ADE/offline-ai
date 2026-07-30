@@ -1,11 +1,13 @@
 import { LLMModule, models, type Message } from 'react-native-executorch';
 
 import { initializeExecutorch } from '@/ai/initialize-executorch';
+import type { AiOperationLease } from '@/ai/runtime-coordinator';
 import { useRuntimeStore } from '@/stores/runtime-store';
 
-class GenerationRuntime {
+export class GenerationRuntime {
   private module: LLMModule | null = null;
   private loadPromise: Promise<void> | null = null;
+  private unloadPromise: Promise<void> | null = null;
   private isGenerating = false;
 
   async load() {
@@ -15,25 +17,42 @@ class GenerationRuntime {
     if (this.loadPromise) {
       return this.loadPromise;
     }
+    if (this.unloadPromise) {
+      await this.unloadPromise;
+      if (this.module) {
+        return;
+      }
+      if (this.loadPromise) {
+        return this.loadPromise;
+      }
+    }
 
     initializeExecutorch();
-    useRuntimeStore.getState().setGeneration({ phase: 'loading', error: null });
+    useRuntimeStore.getState().setGeneration({
+      residency: 'loading',
+      progress: 0,
+      error: null,
+    });
 
     this.loadPromise = LLMModule.fromModelName(
       models.llm.gemma4_e2b(),
       (progress) =>
         useRuntimeStore.getState().setGeneration({
-          phase: progress < 1 ? 'downloading' : 'loading',
+          residency: 'loading',
           progress,
         })
     )
       .then((module) => {
         this.module = module;
-        useRuntimeStore.getState().setGeneration({ phase: 'ready', progress: 1, error: null });
+        useRuntimeStore.getState().setGeneration({
+          residency: 'loaded',
+          progress: 1,
+          error: null,
+        });
       })
       .catch((error: unknown) => {
         useRuntimeStore.getState().setGeneration({
-          phase: 'error',
+          residency: 'failed',
           error: error instanceof Error ? error.message : 'Unable to load Gemma.',
         });
         throw error;
@@ -45,7 +64,12 @@ class GenerationRuntime {
     return this.loadPromise;
   }
 
-  async generate(messages: Message[], onToken: (token: string) => void = () => undefined) {
+  async generate(
+    messages: Message[],
+    lease: AiOperationLease,
+    onToken: (token: string) => void = () => undefined
+  ) {
+    lease.assertActive();
     if (this.isGenerating) {
       throw new Error('Another local generation is already in progress.');
     }
@@ -55,42 +79,95 @@ class GenerationRuntime {
       if (!this.module) {
         await this.load();
       }
+      lease.assertActive();
       if (!this.module) {
         throw new Error('Gemma is not loaded.');
       }
 
-      useRuntimeStore.getState().setGeneration({ phase: 'generating', error: null });
-      this.module.setTokenCallback({ tokenCallback: onToken });
-      return await this.module.generate(messages);
+      useRuntimeStore.getState().setGeneration({
+        activity: 'running',
+        error: null,
+      });
+      this.module.setTokenCallback({
+        tokenCallback: (token) => {
+          if (lease.isActive()) {
+            onToken(token);
+          }
+        },
+      });
+      const output = await this.module.generate(messages);
+      lease.assertActive();
+      return output;
     } finally {
       this.isGenerating = false;
       if (this.module) {
-        useRuntimeStore.getState().setGeneration({ phase: 'ready' });
+        useRuntimeStore.getState().setGeneration({ activity: 'idle' });
       }
     }
   }
 
   interrupt() {
-    if (!this.module) {
+    if (!this.module || !this.isGenerating) {
       return;
     }
 
-    useRuntimeStore.getState().setGeneration({ phase: 'interrupting' });
+    useRuntimeStore.getState().setGeneration({ activity: 'interrupting' });
     this.module.interrupt();
   }
 
-  unload() {
-    if (!this.module) {
-      return;
+  async unload() {
+    if (this.unloadPromise) {
+      return this.unloadPromise;
     }
 
-    this.module.delete();
-    this.module = null;
-    useRuntimeStore.getState().setGeneration({
-      phase: 'downloaded',
-      progress: 1,
-      error: null,
+    const work = (async () => {
+      if (this.loadPromise) {
+        await this.loadPromise;
+      }
+      if (!this.module) {
+        useRuntimeStore.getState().setGeneration({
+          residency: 'unloaded',
+          activity: 'idle',
+          progress: 0,
+          error: null,
+        });
+        return;
+      }
+      if (this.isGenerating) {
+        throw new Error(
+          'Stop the active generation before unloading the local model.'
+        );
+      }
+
+      useRuntimeStore.getState().setGeneration({
+        residency: 'unloading',
+        error: null,
+      });
+      try {
+        this.module.delete();
+        this.module = null;
+        useRuntimeStore.getState().setGeneration({
+          residency: 'unloaded',
+          activity: 'idle',
+          progress: 0,
+          error: null,
+        });
+      } catch (error) {
+        useRuntimeStore.getState().setGeneration({
+          residency: 'failed',
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Unable to unload Gemma.',
+        });
+        throw error;
+      }
+    })().finally(() => {
+      this.unloadPromise = null;
     });
+
+    this.unloadPromise = work;
+    return work;
   }
 }
 

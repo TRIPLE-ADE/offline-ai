@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { generationRuntime } from '@/ai/generation-runtime';
+import { isAiOperationCancelledError } from '@/ai/runtime-coordinator';
 import { AssessmentOption } from '@/components/foundation/assessment-option';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ProgressBar } from '@/components/foundation/progress-bar';
@@ -74,7 +74,14 @@ export default function TopicQuizScreen() {
     }
   }, [db, topicId]);
 
-  useFocusEffect(useCallback(() => void load(), [load]));
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      return () => {
+        quizService.stop(topicId);
+      };
+    }, [load, topicId])
+  );
 
   const generate = async () => {
     if (!ensureAccess({ hasMaterial: Boolean(topic) })) {
@@ -89,7 +96,14 @@ export default function TopicQuizScreen() {
       setQuiz(generated);
       setAnswers(Array(generated.questions.length).fill(-1));
     } catch (caught) {
-      setError(userFacingError(caught, 'The knowledge check could not be prepared. Retry when you are ready.'));
+      if (!isAiOperationCancelledError(caught)) {
+        setError(
+          userFacingError(
+            caught,
+            'The knowledge check could not be prepared. Retry when you are ready.'
+          )
+        );
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -225,16 +239,24 @@ export default function TopicQuizScreen() {
               disabled={isGenerating}
               label={
                 isGenerating
-                  ? generation.phase === 'downloading'
-                    ? `Installing offline AI · ${Math.round(generation.progress * 100)}%`
+                  ? generation.residency === 'loading'
+                    ? `Preparing offline AI · ${Math.round(generation.progress * 100)}%`
                     : 'Preparing questions…'
                   : 'Prepare knowledge check'
               }
               loading={isGenerating}
               onPress={() => void generate()}
             />
-            {isGenerating && generation.phase === 'generating' ? (
-              <PrimaryButton label="Stop generation" onPress={() => generationRuntime.interrupt()} variant="secondary" />
+            {isGenerating ? (
+              <PrimaryButton
+                label={
+                  generation.activity === 'running'
+                    ? 'Stop generation'
+                    : 'Stop preparation'
+                }
+                onPress={() => quizService.stop(topicId)}
+                variant="secondary"
+              />
             ) : null}
           </ScrollView>
         ) : result ? (

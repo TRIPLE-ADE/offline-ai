@@ -16,7 +16,7 @@ import {
   View,
 } from "react-native";
 
-import { generationRuntime } from "@/ai/generation-runtime";
+import { isAiOperationCancelledError } from "@/ai/runtime-coordinator";
 import { PrimaryButton } from "@/components/foundation/primary-button";
 import { ProcessingStepper } from "@/components/foundation/processing-stepper";
 import { ProgressBar } from "@/components/foundation/progress-bar";
@@ -93,7 +93,10 @@ export default function MaterialScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load]),
+      return () => {
+        topicRoadmapService.stop(materialId);
+      };
+    }, [load, materialId]),
   );
 
   const coverage = useMemo(
@@ -159,12 +162,14 @@ export default function MaterialScreen() {
       setTopics(await topicRoadmapService.generate(db, materialId));
       await load();
     } catch (caught) {
-      setError(
-        userFacingError(
-          caught,
-          "The roadmap could not be created. Retry without preparing the material again.",
-        ),
-      );
+      if (!isAiOperationCancelledError(caught)) {
+        setError(
+          userFacingError(
+            caught,
+            "The roadmap could not be created. Retry without preparing the material again.",
+          ),
+        );
+      }
       await load();
     } finally {
       setIsGeneratingRoadmap(false);
@@ -330,7 +335,7 @@ export default function MaterialScreen() {
             }
             onSecondary={() =>
               isGeneratingRoadmap
-                ? generationRuntime.interrupt()
+                ? topicRoadmapService.stop(materialId)
                 : router.navigate({
                     pathname: "/material/[materialId]/chat",
                     params: { materialId },

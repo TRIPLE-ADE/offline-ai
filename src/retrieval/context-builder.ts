@@ -3,6 +3,7 @@ import {
   type ContextSelectionOptions,
   type GroundedPassage,
 } from '@/retrieval/context-selection';
+import type { AiOperationLease } from '@/ai/runtime-coordinator';
 import { offlineVectorIndex } from '@/retrieval/offline-vector-index';
 
 const DEFAULT_CANDIDATE_LIMIT = 8;
@@ -20,6 +21,7 @@ type ContextBuilderOptions = ContextSelectionOptions & {
 export async function buildGroundedContext(
   materialId: string,
   query: string,
+  lease: AiOperationLease,
   options: ContextBuilderOptions = {}
 ): Promise<GroundedContext> {
   const normalizedQuery = query.trim();
@@ -31,6 +33,7 @@ export async function buildGroundedContext(
   const candidates = await offlineVectorIndex.queryMaterial(
     materialId,
     normalizedQuery,
+    lease,
     candidateLimit
   );
   const passages = selectGroundedPassages(candidates, options);

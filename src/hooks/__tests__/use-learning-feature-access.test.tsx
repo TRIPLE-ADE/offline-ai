@@ -35,8 +35,18 @@ describe('learning feature access prompts', () => {
       offlineAiOpen: false,
     });
     useRuntimeStore.setState({
-      embedding: { phase: 'not_downloaded', progress: 0, error: null },
-      generation: { phase: 'not_downloaded', progress: 0, error: null },
+      embedding: {
+        residency: 'unloaded',
+        activity: 'idle',
+        progress: 0,
+        error: null,
+      },
+      generation: {
+        residency: 'unloaded',
+        activity: 'idle',
+        progress: 0,
+        error: null,
+      },
     });
     useModelInstallationStore.setState({
       message: null,
@@ -103,8 +113,18 @@ describe('learning feature access prompts', () => {
 
   it('does not expose ready features when runtime state disagrees with installation truth', async () => {
     useRuntimeStore.setState({
-      embedding: { phase: 'ready', progress: 1, error: null },
-      generation: { phase: 'ready', progress: 1, error: null },
+      embedding: {
+        residency: 'loaded',
+        activity: 'idle',
+        progress: 1,
+        error: null,
+      },
+      generation: {
+        residency: 'loaded',
+        activity: 'idle',
+        progress: 1,
+        error: null,
+      },
     });
     const { result } = await renderHook(() => useLearningFeatureAccess());
 
@@ -113,6 +133,16 @@ describe('learning feature access prompts', () => {
     expect(useAppOverlayStore.getState().actionSheet?.title).toBe(
       'Download offline AI'
     );
+  });
+
+  it('allows on-demand loading when files are available but runtimes are unloaded', async () => {
+    useModelInstallationStore.setState({ availability: 'available' });
+    const { result } = await renderHook(() => useLearningFeatureAccess());
+
+    expect(useRuntimeStore.getState().generation.residency).toBe('unloaded');
+    expect(useRuntimeStore.getState().embedding.residency).toBe('unloaded');
+    expect(result.current.modelInstalled).toBe(true);
+    expect(result.current.ensureAccess({ hasMaterial: true })).toBe(true);
   });
 
   it('does not expose a persisted ready state before the startup file check completes', async () => {

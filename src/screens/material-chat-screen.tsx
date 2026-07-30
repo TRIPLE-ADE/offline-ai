@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
+import { isAiOperationCancelledError } from '@/ai/runtime-coordinator';
 import { materialChatService } from '@/chat/material-chat-service';
 import { ChatComposer } from '@/components/foundation/chat-composer';
 import { ChatMessage as ChatMessageBubble } from '@/components/foundation/chat-message';
@@ -78,7 +79,6 @@ export default function MaterialChatScreen() {
   const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
   const { ensureAccess, modelInstalled } = useLearningFeatureAccess();
   const listRef = useRef<FlatList<ChatMessage>>(null);
-  const interruptedRef = useRef(false);
   const seededPrompt = useRef(false);
   const shouldAutoScrollRef = useRef(true);
   const shouldSnapOnNextLayoutRef = useRef(true);
@@ -127,6 +127,13 @@ export default function MaterialChatScreen() {
     }
   }, [prompt]);
 
+  useEffect(
+    () => () => {
+      materialChatService.stop(materialId);
+    },
+    [materialId]
+  );
+
   const ask = useCallback(
     async (suggested?: string) => {
       const currentQuestion = (suggested ?? question).trim();
@@ -139,7 +146,6 @@ export default function MaterialChatScreen() {
       setIsGenerating(true);
       setShowScrollButton(false);
       shouldAutoScrollRef.current = true;
-      interruptedRef.current = false;
 
       const now = new Date().toISOString();
       const optimisticUser: ChatMessage = {
@@ -165,7 +171,6 @@ export default function MaterialChatScreen() {
 
       try {
         await materialChatService.ask(db, materialId, currentQuestion, {
-          wasInterrupted: () => interruptedRef.current,
           onToken: (content) =>
             setMessages((current) =>
               current.map((message) =>
@@ -174,7 +179,7 @@ export default function MaterialChatScreen() {
             ),
         });
       } catch (caught) {
-        if (!interruptedRef.current) {
+        if (!isAiOperationCancelledError(caught)) {
           setError(
             userFacingError(
               caught,
@@ -200,9 +205,8 @@ export default function MaterialChatScreen() {
   );
 
   const stop = useCallback(() => {
-    interruptedRef.current = true;
-    materialChatService.stop();
-  }, []);
+    materialChatService.stop(materialId);
+  }, [materialId]);
 
   const clearConversation = useCallback(() => {
     showActionSheet({

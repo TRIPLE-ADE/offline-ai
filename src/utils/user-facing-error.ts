@@ -1,4 +1,16 @@
+import {
+  isAiOperationBusyError,
+  isAiOperationCancelledError,
+} from '@/ai/runtime-coordinator';
+
 export function userFacingError(error: unknown, fallback: string) {
+  if (isAiOperationBusyError(error)) {
+    return 'Another offline AI task is already running. Finish or stop it, then try again.';
+  }
+  if (isAiOperationCancelledError(error)) {
+    return 'The offline AI task was stopped.';
+  }
+
   const message = error instanceof Error ? error.message : '';
   const normalized = message.toLowerCase();
 
