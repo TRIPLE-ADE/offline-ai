@@ -69,10 +69,12 @@ type ModelInstallationStore = ModelInstallationState & {
   availabilityUpdatedAt: string;
   downloadActive: boolean;
   downloadProgress: number;
+  resourceRemovalActive: boolean;
   setDownloadState: (state: {
     active?: boolean;
     progress?: number;
   }) => void;
+  setResourceRemovalActive: (active: boolean) => void;
   setState: (state: ModelInstallationState) => void;
 };
 
@@ -84,6 +86,7 @@ export const useModelInstallationStore = create<ModelInstallationStore>(
     availabilityUpdatedAt: initialState.updatedAt,
     downloadActive: false,
     downloadProgress: 0,
+    resourceRemovalActive: false,
     setDownloadState: ({ active, progress }) =>
       set((state) => ({
         downloadActive: active ?? state.downloadActive,
@@ -92,6 +95,8 @@ export const useModelInstallationStore = create<ModelInstallationStore>(
             ? state.downloadProgress
             : Math.max(0, Math.min(1, progress)),
       })),
+    setResourceRemovalActive: (active) =>
+      set({ resourceRemovalActive: active }),
     setState: (state) => set(state),
   })
 );
@@ -124,6 +129,10 @@ export function setModelDownloadState(state: {
   progress?: number;
 }) {
   useModelInstallationStore.getState().setDownloadState(state);
+}
+
+export function setModelResourceRemovalState(active: boolean) {
+  useModelInstallationStore.getState().setResourceRemovalActive(active);
 }
 
 export function beginModelResourceVerification() {

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { PrimaryButton } from '@/components/foundation/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -27,11 +26,9 @@ const steps = [
 
 export function FirstStudyPath({
   downloadAiLabel = HOME_EMPTY_STATE_COPY.secondaryAction,
-  onImport,
   onDownloadAi,
 }: {
   downloadAiLabel?: string;
-  onImport: () => void;
   onDownloadAi?: () => void;
 }) {
   const theme = useTheme();
@@ -41,7 +38,6 @@ export function FirstStudyPath({
       style={[
         styles.panel,
         {
-          backgroundColor: theme.surfaceElevated,
           borderColor: theme.border,
         },
       ]}>
@@ -96,11 +92,6 @@ export function FirstStudyPath({
         ))}
       </View>
 
-      <PrimaryButton
-        label={HOME_EMPTY_STATE_COPY.primaryAction}
-        leading={<Ionicons name="add" color={theme.textOnPrimary} size={20} />}
-        onPress={onImport}
-      />
       {onDownloadAi ? (
         <Pressable
           accessibilityLabel={downloadAiLabel}

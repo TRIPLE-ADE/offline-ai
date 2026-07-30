@@ -63,6 +63,7 @@ export default function StudyScreen() {
     availability,
     available: offlineReady,
     checking: modelStatusChecking,
+    resourceRemovalActive,
     retryVerification,
   } = useOfflineAiCapability();
   const overviewMaterials = useLearningOverviewStore(
@@ -143,7 +144,9 @@ export default function StudyScreen() {
           </ThemedText>
           <StatusBadge
             label={
-              modelStatusChecking
+              resourceRemovalActive
+                ? "Removing offline AI…"
+                : modelStatusChecking
                 ? "Checking offline AI…"
                 : availability === "error"
                   ? "Offline AI check needs attention"
@@ -152,7 +155,9 @@ export default function StudyScreen() {
                 : "Offline AI available when you’re ready"
             }
             tone={
-              modelStatusChecking
+              resourceRemovalActive
+                ? "working"
+                : modelStatusChecking
                 ? "neutral"
                 : availability === "error"
                   ? "error"

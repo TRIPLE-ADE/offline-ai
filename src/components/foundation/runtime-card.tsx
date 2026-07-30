@@ -52,7 +52,7 @@ export function RuntimeCard({
       style={[
         styles.card,
         {
-          backgroundColor: theme.surfaceElevated,
+          backgroundColor: theme.surface,
           borderColor: theme.border,
           shadowColor: theme.shadow,
         },

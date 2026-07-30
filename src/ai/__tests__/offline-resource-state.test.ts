@@ -7,6 +7,7 @@ const mockCompleteVerification = jest.fn();
 const mockFailVerification = jest.fn();
 const mockSaveInstallationState = jest.fn();
 const mockSetDownloadState = jest.fn();
+const mockSetResourceRemovalState = jest.fn();
 let mockResourceDirectoryExists = true;
 
 jest.mock('expo-file-system', () => ({
@@ -66,6 +67,8 @@ jest.mock('@/ai/model-installation-state', () => ({
     mockSaveInstallationState(...args),
   setModelDownloadState: (...args: unknown[]) =>
     mockSetDownloadState(...args),
+  setModelResourceRemovalState: (active: boolean) =>
+    mockSetResourceRemovalState(active),
 }));
 
 jest.mock('@/ai/runtime-memory-controller', () => ({
@@ -102,6 +105,7 @@ describe('offline resource inspection', () => {
     mockFailVerification.mockReset();
     mockSaveInstallationState.mockReset();
     mockSetDownloadState.mockReset();
+    mockSetResourceRemovalState.mockReset();
     mockReleaseAll.mockResolvedValue(undefined);
     mockDeleteResources.mockResolvedValue(undefined);
   });
@@ -200,6 +204,7 @@ describe('offline resource inspection', () => {
       active: false,
       progress: 0,
     });
+    expect(mockSetResourceRemovalState.mock.calls).toEqual([[true], [false]]);
   });
 
   it('reconciles partial deletion and keeps the failure retryable', async () => {
@@ -217,5 +222,6 @@ describe('offline resource inspection', () => {
       'failed',
       expect.stringContaining('could not be removed')
     );
+    expect(mockSetResourceRemovalState.mock.calls).toEqual([[true], [false]]);
   });
 });

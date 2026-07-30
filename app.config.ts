@@ -5,6 +5,8 @@ const isDevelopment = process.env.APP_VARIANT === DEVELOPMENT_VARIANT;
 
 const productionIdentifier = 'com.tripletech.offlineai';
 const developmentIdentifier = `${productionIdentifier}.dev`;
+const lightSplashBackground = '#FFFFFF';
+const darkSplashBackground = '#0F1219';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -49,9 +51,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-splash-screen',
       {
-        backgroundColor: '#FFFFFF',
-        image: './assets/images/splash-icon.png',
-        imageWidth: 260,
+        backgroundColor: lightSplashBackground,
+        image: './assets/images/splash-mark.png',
+        imageWidth: 144,
+        resizeMode: 'contain',
+        dark: {
+          backgroundColor: darkSplashBackground,
+          image: './assets/images/splash-mark-dark.png',
+        },
       },
     ],
     'expo-asset',

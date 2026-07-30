@@ -1,7 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 import { MaterialCard } from '@/components/foundation/material-card';
 import { BrandContext } from '@/components/brand/brand-context';
@@ -9,12 +12,14 @@ import { FirstStudyPath } from '@/components/library/first-study-path';
 import { PrimaryButton } from '@/components/foundation/primary-button';
 import { SectionHeader } from '@/components/foundation/section-header';
 import { StatusBadge } from '@/components/foundation/status-badge';
+import { ImportMaterialFab } from '@/components/materials/import-material-fab';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { Brand } from '@/constants/brand';
 import { useOfflineAiCapability } from '@/hooks/use-offline-ai-capability';
 import { useTheme } from '@/hooks/use-theme';
+import { useMaterialDeletion } from '@/materials/use-material-deletion';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 import { useLearningOverviewStore } from '@/stores/learning-overview-store';
 import { toast } from '@/utils/app-toast';
@@ -22,6 +27,8 @@ import { toast } from '@/utils/app-toast';
 export default function HomeScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const confirmMaterialDeletion = useMaterialDeletion();
   const openImportMaterial = useAppOverlayStore((state) => state.openImportMaterial);
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
   const {
@@ -29,6 +36,7 @@ export default function HomeScreen() {
     available: offlineReady,
     checking: modelStatusChecking,
     installationPhase: modelInstallationPhase,
+    resourceRemovalActive,
     retryVerification,
   } = useOfflineAiCapability();
   const items = useLearningOverviewStore((state) => state.materials);
@@ -68,7 +76,10 @@ export default function HomeScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.container}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: insets.bottom + 112 },
+          ]}
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}>
           <View>
@@ -78,7 +89,9 @@ export default function HomeScreen() {
           <View style={styles.statusRow}>
             <StatusBadge
               label={
-                modelStatusChecking
+                resourceRemovalActive
+                  ? 'Removing offline AI…'
+                  : modelStatusChecking
                   ? 'Checking offline AI…'
                   : availability === 'error'
                     ? 'Offline AI check needs attention'
@@ -87,7 +100,9 @@ export default function HomeScreen() {
                     : 'AI available when you’re ready'
               }
               tone={
-                modelStatusChecking
+                resourceRemovalActive
+                  ? 'working'
+                  : modelStatusChecking
                   ? 'neutral'
                   : availability === 'error'
                     ? 'error'
@@ -184,7 +199,6 @@ export default function HomeScreen() {
           {items.length === 0 && !loading ? (
             <FirstStudyPath
               downloadAiLabel={modelActionLabel}
-              onImport={openImportMaterial}
               onDownloadAi={
                 modelStatusChecking || offlineReady ? undefined : handleModelAction
               }
@@ -192,24 +206,6 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.materialsSection}>
               <SectionHeader
-                action={
-                  <Pressable
-                    accessibilityLabel="Import material"
-                    accessibilityRole="button"
-                    onPress={openImportMaterial}
-                    style={({ pressed }) => [
-                      styles.addButton,
-                      {
-                        backgroundColor: pressed ? theme.surfaceSelected : 'transparent',
-                        borderColor: theme.border,
-                      },
-                    ]}>
-                    <Ionicons name="add" color={theme.primary} size={22} />
-                    <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                      Import
-                    </ThemedText>
-                  </Pressable>
-                }
                 description={`${items.length} private material${items.length === 1 ? '' : 's'} on this device`}
                 title="Materials"
               />
@@ -225,6 +221,7 @@ export default function HomeScreen() {
                         params: { materialId: material.id },
                       })
                     }
+                    onOptionsPress={() => confirmMaterialDeletion(material)}
                     topics={topics}
                   />
                 );
@@ -232,6 +229,10 @@ export default function HomeScreen() {
             </View>
           )}
         </ScrollView>
+        <ImportMaterialFab
+          bottomInset={insets.bottom}
+          onPress={openImportMaterial}
+        />
       </SafeAreaView>
     </ThemedView>
   );
@@ -281,14 +282,4 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1, gap: Spacing.one },
   materialsSection: { gap: Spacing.three },
-  addButton: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: Radius.medium,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: Spacing.one,
-    minHeight: TouchTarget,
-    paddingHorizontal: Spacing.three,
-  },
 });

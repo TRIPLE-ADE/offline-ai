@@ -45,11 +45,10 @@ jest.mock('@/components/themed-text', () => {
 });
 
 describe('Home empty state', () => {
-  it('welcomes a learner with optional import and model actions', async () => {
-    const onImport = jest.fn();
+  it('welcomes a learner with the optional model action', async () => {
     const onDownloadAi = jest.fn();
     const screen = await render(
-      <FirstStudyPath onDownloadAi={onDownloadAi} onImport={onImport} />
+      <FirstStudyPath onDownloadAi={onDownloadAi} />
     );
 
     expect(screen.getByText('Ready when you are')).toBeTruthy();
@@ -60,18 +59,14 @@ describe('Home empty state', () => {
     ).toBeTruthy();
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Import material' })
-    );
-    await fireEvent.press(
       screen.getByRole('button', { name: 'Download offline AI' })
     );
 
-    expect(onImport).toHaveBeenCalledTimes(1);
     expect(onDownloadAi).toHaveBeenCalledTimes(1);
   });
 
   it('hides the model action after installation', async () => {
-    const screen = await render(<FirstStudyPath onImport={jest.fn()} />);
+    const screen = await render(<FirstStudyPath />);
 
     expect(screen.queryByText('Download offline AI')).toBeNull();
     expect(

@@ -14,7 +14,7 @@ export default function TabsLayout() {
 
   return (
     <NativeTabs
-      backgroundColor={theme.surfaceElevated}
+      backgroundColor={theme.surface}
       backBehavior="history"
       disableTransparentOnScrollEdge
       iconColor={{

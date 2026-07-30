@@ -11,6 +11,7 @@ export function useLearningFeatureAccess() {
   const {
     availability,
     available: modelInstalled,
+    resourceRemovalActive,
     retryVerification,
   } = useOfflineAiCapability();
   const openImportMaterial = useAppOverlayStore(
@@ -62,6 +63,14 @@ export function useLearningFeatureAccess() {
         return true;
       }
 
+      if (resourceRemovalActive) {
+        toast.info('Removing offline AI', {
+          description:
+            'Wait for the private model files to finish being removed before starting another offline AI task.',
+        });
+        return false;
+      }
+
       if (availability === 'checking') {
         toast.info('Checking offline AI', {
           description:
@@ -100,6 +109,7 @@ export function useLearningFeatureAccess() {
       modelInstalled,
       openImportMaterial,
       openOfflineAi,
+      resourceRemovalActive,
       retryVerification,
       showActionSheet,
     ]

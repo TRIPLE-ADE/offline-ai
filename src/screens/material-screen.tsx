@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { File } from "expo-file-system";
 import {
   Stack,
   useFocusEffect,
@@ -25,7 +24,7 @@ import { StatusBadge } from "@/components/foundation/status-badge";
 import { TopicCard } from "@/components/foundation/topic-card";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { Radius, Spacing, TouchTarget } from "@/constants/theme";
+import { Radius, Spacing } from "@/constants/theme";
 import { MaterialRepository } from "@/db/repositories/material-repository";
 import { TopicRepository } from "@/db/repositories/topic-repository";
 import type { Material, MaterialStatus, Topic } from "@/db/types";
@@ -34,13 +33,8 @@ import { useLearningFeatureAccess } from "@/hooks/use-learning-feature-access";
 import { topicRoadmapService } from "@/learning/topic-roadmap-service";
 import { MISSING_SOURCE_MESSAGE } from "@/materials/import-material";
 import { materialProcessingService } from "@/materials/process-material";
-import { offlineVectorIndex } from "@/retrieval/offline-vector-index";
-import {
-  showActionSheet,
-  useAppOverlayStore,
-} from "@/stores/app-overlay-store";
+import { useAppOverlayStore } from "@/stores/app-overlay-store";
 import { useRuntimeStore } from "@/stores/runtime-store";
-import { toast } from "@/utils/app-toast";
 import { userFacingError } from "@/utils/user-facing-error";
 
 const PROCESS_STEPS: { status: MaterialStatus; label: string }[] = [
@@ -181,33 +175,6 @@ export default function MaterialScreen() {
     }
   };
 
-  const confirmDelete = () => {
-    if (!material) return;
-    showActionSheet({
-      actionLabel: "Delete material",
-      cancelLabel: "Keep material",
-      description: `This permanently deletes “${material.title}”, its progress, lessons, questions, and chat history.`,
-      destructive: true,
-      onAction: () => {
-        void (async () => {
-          await offlineVectorIndex.deleteMaterial(material.id);
-          await new MaterialRepository(db).delete(material.id);
-          const file = new File(material.localUri);
-          if (file.exists) file.delete();
-          router.replace("/home");
-          toast.success("Material deleted");
-        })().catch((caught) =>
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "The material could not be deleted.",
-          ),
-        );
-      },
-      title: "Delete this material?",
-    });
-  };
-
   if (loadedMaterialId !== materialId) {
     return (
       <ThemedView style={styles.centered}>
@@ -252,24 +219,14 @@ export default function MaterialScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.detailHeader}>
-          <View style={styles.flex}>
-            <ThemedText type="caption" themeColor="textSecondary">
-              {material.fileType.toUpperCase()} · ON THIS DEVICE
-            </ThemedText>
-            <ThemedText themeColor="textSecondary">
-              {topics.length > 0
-                ? `${completed} of ${topics.length} topics completed`
-                : "Prepare this material once, then study and ask questions without internet."}
-            </ThemedText>
-          </View>
-          <Pressable
-            accessibilityLabel="Material options"
-            accessibilityRole="button"
-            onPress={confirmDelete}
-            style={[styles.iconButton, { borderColor: theme.border }]}
-          >
-            <Ionicons name="ellipsis-horizontal" color={theme.text} size={22} />
-          </Pressable>
+          <ThemedText type="caption" themeColor="textSecondary">
+            {material.fileType.toUpperCase()} · ON THIS DEVICE
+          </ThemedText>
+          <ThemedText themeColor="textSecondary">
+            {topics.length > 0
+              ? `${completed} of ${topics.length} topics completed`
+              : "Prepare this material once, then study and ask questions without internet."}
+          </ThemedText>
         </View>
 
         {sourceUnavailable ? (
@@ -282,8 +239,8 @@ export default function MaterialScreen() {
             }
             icon="document-text-outline"
             onAction={openImportMaterial}
-            onSecondary={confirmDelete}
-            secondaryLabel="Remove this material"
+            onSecondary={() => router.replace("/home")}
+            secondaryLabel="Go Home"
             title="Source file is unavailable"
           />
         ) : null}
@@ -293,7 +250,7 @@ export default function MaterialScreen() {
             style={[
               styles.processing,
               {
-                  backgroundColor: theme.surfaceElevated,
+                  backgroundColor: theme.background,
                   borderColor: theme.border,
                   borderTopColor: theme.primary,
                 },
@@ -472,20 +429,6 @@ export default function MaterialScreen() {
                 />
                 <ThemedText type="smallBold">Progress</ThemedText>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={confirmDelete}
-                style={[
-                  styles.quickAction,
-                  {
-                    backgroundColor: theme.surfaceElevated,
-                    borderColor: theme.border,
-                  },
-                ]}
-              >
-                <Ionicons name="trash-outline" color={theme.danger} size={22} />
-                <ThemedText type="smallBold">Options</ThemedText>
-              </Pressable>
             </View>
 
             {lastStudied ? (
@@ -563,17 +506,7 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
   },
   detailHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: Spacing.three,
-  },
-  iconButton: {
-    alignItems: "center",
-    borderRadius: Radius.medium,
-    borderWidth: 1,
-    height: TouchTarget,
-    justifyContent: "center",
-    width: TouchTarget,
+    gap: Spacing.one,
   },
   processing: {
     borderCurve: "continuous",

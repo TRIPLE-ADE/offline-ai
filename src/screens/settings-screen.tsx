@@ -3,8 +3,14 @@ import Constants from 'expo-constants';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import {
   getDeviceModelMemoryPolicy,
@@ -34,7 +40,10 @@ import {
 import { toast } from '@/utils/app-toast';
 import { userFacingError } from '@/utils/user-facing-error';
 import {
+  beginOptimisticLearningDataDeletion,
+  endOptimisticLearningDataDeletion,
   refreshLearningOverview,
+  restoreOptimisticLearningDataDeletion,
   useLearningOverviewStore,
 } from '@/stores/learning-overview-store';
 
@@ -47,8 +56,16 @@ const APPEARANCE_OPTIONS: { label: string; value: AppearancePreference }[] = [
 function offlineAiCopy(
   phase: ModelInstallationPhase,
   availability: OfflineAiAvailability,
-  memoryPolicy: ModelMemoryPolicy
+  memoryPolicy: ModelMemoryPolicy,
+  removing: boolean
 ) {
+  if (removing) {
+    return {
+      badge: 'Removing',
+      description:
+        'Releasing model memory and removing the private AI files from this device.',
+    };
+  }
   if (memoryPolicy.support === 'unsupported') {
     return {
       badge: 'Not supported',
@@ -105,20 +122,30 @@ function SettingsRow({
   value,
   onPress,
   destructive = false,
+  busy = false,
+  disabled = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
   onPress?: () => void;
   destructive?: boolean;
+  busy?: boolean;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
+  const inactive = disabled || !onPress;
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : 'text'}
-      disabled={!onPress}
+      accessibilityState={{ busy, disabled: inactive }}
+      disabled={inactive}
       onPress={onPress}
-      style={[styles.row, { borderBottomColor: theme.divider }]}>
+      style={[
+        styles.row,
+        { borderBottomColor: theme.divider },
+        disabled && styles.disabledRow,
+      ]}>
       <Ionicons name={icon} color={destructive ? theme.danger : theme.textSecondary} size={22} />
       <View style={styles.flex}>
         <ThemedText type="smallBold" style={destructive ? { color: theme.danger } : undefined}>
@@ -126,7 +153,14 @@ function SettingsRow({
         </ThemedText>
         {value ? <ThemedText type="small" themeColor="textSecondary">{value}</ThemedText> : null}
       </View>
-      {onPress ? <Ionicons name="chevron-forward" color={theme.textTertiary} size={20} /> : null}
+      {busy ? (
+        <ActivityIndicator
+          color={destructive ? theme.danger : theme.primary}
+          size="small"
+        />
+      ) : onPress ? (
+        <Ionicons name="chevron-forward" color={theme.textTertiary} size={20} />
+      ) : null}
     </Pressable>
   );
 }
@@ -137,18 +171,23 @@ export default function SettingsScreen() {
   const theme = useTheme();
   const openOfflineAi = useAppOverlayStore((state) => state.openOfflineAi);
   const memoryPolicy = getDeviceModelMemoryPolicy();
-  const [removingOfflineAi, setRemovingOfflineAi] = useState(false);
+  const [clearingChat, setClearingChat] = useState(false);
+  const clearingChatRef = useRef(false);
+  const deletingAllDataRef = useRef(false);
+  const mountedRef = useRef(true);
   const {
     availability,
     available: ready,
     checking,
     installationPhase: modelInstallationPhase,
+    resourceRemovalActive: removingOfflineAi,
     retryVerification,
   } = useOfflineAiCapability();
   const resourceCopy = offlineAiCopy(
     modelInstallationPhase,
     availability,
-    memoryPolicy
+    memoryPolicy,
+    removingOfflineAi
   );
   const canRemoveOfflineAi =
     ready ||
@@ -178,6 +217,13 @@ export default function SettingsScreen() {
   }, [materials]);
   const appearance = useAppearanceStore((state) => state.preference);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const updateAppearance = (preference: AppearancePreference) => {
     setAppearancePreference(preference);
   };
@@ -190,10 +236,22 @@ export default function SettingsScreen() {
         'Every saved question and answer will be removed. Materials, lessons, results, and progress remain.',
       destructive: true,
       onAction: () => {
-        void db
-          .runAsync('DELETE FROM chat_messages')
-          .then(() => toast.success('Chat history deleted'))
-          .catch(() => toast.error('Chat history could not be deleted'));
+        if (clearingChatRef.current) {
+          return;
+        }
+        clearingChatRef.current = true;
+        setClearingChat(true);
+        const deletion = db.runAsync('DELETE FROM chat_messages').finally(() => {
+          clearingChatRef.current = false;
+          if (mountedRef.current) {
+            setClearingChat(false);
+          }
+        });
+        toast.promise(deletion, {
+          loading: 'Deleting chat history…',
+          success: () => 'Chat history deleted',
+          error: () => 'Chat history could not be deleted',
+        });
       },
       title: 'Delete all chat history?',
     });
@@ -206,18 +264,64 @@ export default function SettingsScreen() {
         'This permanently removes every material, lesson, chat, result, recommendation, and progress record. Offline AI remains installed.',
       destructive: true,
       onAction: () => {
-        void (async () => {
-          const materials = await new MaterialRepository(db).list();
-          for (const material of materials) {
-            await offlineVectorIndex.deleteMaterial(material.id);
-            const file = new File(material.localUri);
-            if (file.exists) file.delete();
+        if (deletingAllDataRef.current) {
+          return;
+        }
+        deletingAllDataRef.current = true;
+        const optimisticSnapshot = beginOptimisticLearningDataDeletion();
+        router.replace('/home');
+
+        const deletion = (async () => {
+          try {
+            const repository = new MaterialRepository(db);
+            const storedMaterials = await repository.list();
+            await repository.deleteAll();
+            endOptimisticLearningDataDeletion(optimisticSnapshot);
+            await refreshLearningOverview();
+
+            let cleanupIncomplete = false;
+            for (const material of storedMaterials) {
+              try {
+                await offlineVectorIndex.deleteMaterial(material.id);
+              } catch (error) {
+                cleanupIncomplete = true;
+                console.warn(
+                  `Vector cleanup failed for deleted material ${material.id}.`,
+                  error
+                );
+              }
+              try {
+                const file = new File(material.localUri);
+                if (file.exists) {
+                  file.delete();
+                }
+              } catch (error) {
+                cleanupIncomplete = true;
+                console.warn(
+                  `File cleanup failed for deleted material ${material.id}.`,
+                  error
+                );
+              }
+            }
+            return { cleanupIncomplete };
+          } catch (error) {
+            restoreOptimisticLearningDataDeletion(optimisticSnapshot);
+            await refreshLearningOverview();
+            throw error;
+          } finally {
+            deletingAllDataRef.current = false;
           }
-          await new MaterialRepository(db).deleteAll();
-          await refreshLearningOverview();
-          router.replace('/home');
-          toast.success('Local learning data deleted');
-        })().catch(() => toast.error('Local learning data could not be deleted'));
+        })();
+
+        toast.promise(deletion, {
+          loading: 'Deleting local learning data…',
+          success: ({ cleanupIncomplete }) =>
+            cleanupIncomplete
+              ? 'Learning data deleted; some unused storage could not be reclaimed'
+              : 'Local learning data deleted',
+          error: () =>
+            'Local learning data could not be deleted. It has been restored.',
+        });
       },
       title: 'Delete all local learning data?',
     });
@@ -233,23 +337,16 @@ export default function SettingsScreen() {
         if (removingOfflineAi) {
           return;
         }
-        setRemovingOfflineAi(true);
-        void removeOfflineResources()
-          .then(() => {
-            toast.success('Offline AI removed', {
-              description:
-                'You can download it again from Home or Settings whenever you are ready.',
-            });
-          })
-          .catch((error: unknown) => {
-            toast.error('Offline AI could not be removed', {
-              description: userFacingError(
-                error,
-                'Finish any active study task, then retry.'
-              ),
-            });
-          })
-          .finally(() => setRemovingOfflineAi(false));
+        const removal = removeOfflineResources();
+        toast.promise(removal, {
+          loading: 'Removing offline AI…',
+          success: () => 'Offline AI removed',
+          error: (error: unknown) =>
+            userFacingError(
+              error,
+              'Offline AI could not be removed. Finish any active study task, then retry.'
+            ),
+        });
       },
       title: 'Remove downloaded offline AI?',
     });
@@ -268,7 +365,7 @@ export default function SettingsScreen() {
             style={[
               styles.resource,
               {
-                backgroundColor: theme.surfaceElevated,
+                backgroundColor: theme.surface,
                 borderColor: theme.border,
                 borderTopColor: theme.primary,
               },
@@ -277,7 +374,9 @@ export default function SettingsScreen() {
                 <View style={[styles.resourceIcon, { backgroundColor: ready && memoryPolicy.support === 'supported' ? theme.successSoft : theme.primarySoft }]}>
                   <Ionicons
                   name={
-                    ready && memoryPolicy.support === 'supported'
+                    removingOfflineAi
+                      ? 'hourglass-outline'
+                      : ready && memoryPolicy.support === 'supported'
                       ? 'checkmark-circle-outline'
                       : memoryPolicy.support === 'unsupported'
                         ? 'alert-circle-outline'
@@ -309,6 +408,8 @@ export default function SettingsScreen() {
               tone={
                 ready && memoryPolicy.support === 'supported'
                   ? 'offline'
+                  : removingOfflineAi
+                    ? 'working'
                   : availability === 'error' ||
                       memoryPolicy.support === 'unsupported'
                     ? 'error'
@@ -317,7 +418,7 @@ export default function SettingsScreen() {
                       : 'working'
               }
             />
-            {!checking ? (
+            {!checking && !removingOfflineAi ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={handleResourceAction}
@@ -339,7 +440,7 @@ export default function SettingsScreen() {
           <View
             style={[
               styles.section,
-              { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
+              { backgroundColor: theme.surface, borderColor: theme.border },
             ]}>
             <ThemedText type="caption" themeColor="textSecondary">READING AND ACCESSIBILITY</ThemedText>
             <View style={[styles.appearanceRow, { borderBottomColor: theme.divider }]}>
@@ -389,7 +490,7 @@ export default function SettingsScreen() {
           <View
             style={[
               styles.section,
-              { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
+              { backgroundColor: theme.surface, borderColor: theme.border },
             ]}>
             <ThemedText type="caption" themeColor="textSecondary">PRIVACY AND LOCAL DATA</ThemedText>
             <SettingsRow icon="folder-open-outline" label="Material storage" value={materialStorage} />
@@ -398,7 +499,13 @@ export default function SettingsScreen() {
               label="Privacy"
               value="No account, cloud sync, or server-side AI"
             />
-            <SettingsRow icon="chatbubbles-outline" label="Delete all chat history" onPress={clearChat} />
+            <SettingsRow
+              busy={clearingChat}
+              disabled={clearingChat}
+              icon="chatbubbles-outline"
+              label={clearingChat ? 'Deleting chat history…' : 'Delete all chat history'}
+              onPress={clearChat}
+            />
             {canRemoveOfflineAi ? (
               <SettingsRow
                 destructive
@@ -408,7 +515,9 @@ export default function SettingsScreen() {
                     ? 'Removing offline AI…'
                     : 'Remove downloaded offline AI'
                 }
-                onPress={removingOfflineAi ? undefined : removeOfflineAi}
+                busy={removingOfflineAi}
+                disabled={removingOfflineAi}
+                onPress={removeOfflineAi}
               />
             ) : null}
             <SettingsRow
@@ -422,7 +531,7 @@ export default function SettingsScreen() {
           <View
             style={[
               styles.section,
-              { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
+              { backgroundColor: theme.surface, borderColor: theme.border },
             ]}>
             <ThemedText type="caption" themeColor="textSecondary">ABOUT</ThemedText>
             <SettingsRow
@@ -464,6 +573,7 @@ const styles = StyleSheet.create({
     width: 52,
   },
   flex: { flex: 1 },
+  disabledRow: { opacity: 0.64 },
   manageAction: {
     alignItems: 'center',
     alignSelf: 'flex-start',

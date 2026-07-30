@@ -7,10 +7,12 @@ import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 
 import { ImportMaterialContent } from '@/components/materials/import-material-content';
+import { useTheme } from '@/hooks/use-theme';
 import { useAppOverlayStore } from '@/stores/app-overlay-store';
 
 export function ImportMaterialSheet() {
   const router = useRouter();
+  const theme = useTheme();
   const close = useAppOverlayStore((state) => state.closeImportMaterial);
   const sheetRef = useRef<BottomSheetMethods | null>(null);
   const pendingMaterialId = useRef<string | null>(null);
@@ -34,6 +36,7 @@ export function ImportMaterialSheet() {
   return (
     <BottomSheet
       ref={sheetRef}
+      backgroundStyle={{ backgroundColor: theme.surface }}
       enableDynamicSizing={true}
       enablePanDownToClose={!busy}
       index={0}

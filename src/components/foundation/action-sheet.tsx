@@ -37,6 +37,7 @@ export function ActionSheet() {
 
   return (
     <BottomSheet
+      backgroundStyle={{ backgroundColor: theme.surface }}
       enableDynamicSizing
       enablePanDownToClose
       index={0}

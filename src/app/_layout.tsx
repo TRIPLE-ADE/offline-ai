@@ -1,3 +1,5 @@
+import "@/global.css";
+
 import { Stack } from "expo-router";
 import {
   DarkTheme,
@@ -32,6 +34,7 @@ import {
 import { refreshLearningOverview } from "@/stores/learning-overview-store";
 
 void SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({ duration: 220, fade: true });
 initializeExecutorch();
 initializeAppearancePreference();
 

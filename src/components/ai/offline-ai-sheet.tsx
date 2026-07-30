@@ -38,6 +38,7 @@ export function OfflineAiSheet() {
     downloadProgress: progress,
     installationMessage,
     installationPhase,
+    resourceRemovalActive,
     retryVerification,
   } = useOfflineAiCapability();
   const memoryPolicy = getDeviceModelMemoryPolicy();
@@ -94,6 +95,7 @@ export function OfflineAiSheet() {
 
   return (
     <BottomSheet
+      backgroundStyle={{ backgroundColor: theme.surface }}
       enablePanDownToClose
       index={0}
       onClose={close}
@@ -136,7 +138,9 @@ export function OfflineAiSheet() {
           <View style={styles.center}>
             <ActivityIndicator color={theme.primary} />
             <ThemedText themeColor="textSecondary">
-              Checking offline resources…
+              {resourceRemovalActive
+                ? 'Removing offline AI…'
+                : 'Checking offline resources…'}
             </ThemedText>
           </View>
         ) : unsupported ? (

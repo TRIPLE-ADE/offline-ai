@@ -8,6 +8,7 @@ import {
   failModelResourceVerification,
   saveModelInstallationState,
   setModelDownloadState,
+  setModelResourceRemovalState,
 } from '@/ai/model-installation-state';
 import { runtimeMemoryController } from '@/ai/runtime-memory-controller';
 import { runtimeCoordinator } from '@/ai/runtime-coordinator';
@@ -33,6 +34,7 @@ const RESOURCE_INSPECTION_ERROR =
 
 let inspectionPromise: Promise<OfflineResourceInspection> | null = null;
 let downloadPromise: Promise<OfflineResourceInspection> | null = null;
+let removalPromise: Promise<OfflineResourceInspection> | null = null;
 
 export function getOfflineResourceGroups(): ResourceGroups {
   const embedding = models.text_embedding.all_minilm_l6_v2();
@@ -138,8 +140,13 @@ export function downloadOfflineResources() {
   return work;
 }
 
-export async function removeOfflineResources() {
-  return runtimeCoordinator.run(
+export function removeOfflineResources() {
+  if (removalPromise) {
+    return removalPromise;
+  }
+
+  setModelResourceRemovalState(true);
+  const work = runtimeCoordinator.run(
     {
       kind: 'removing-resources',
       owner: { type: 'offline-ai', id: 'installed-resources' },
@@ -182,7 +189,15 @@ export async function removeOfflineResources() {
       setModelDownloadState({ active: false, progress: 0 });
       return inspection;
     }
-  );
+  ).finally(() => {
+    setModelResourceRemovalState(false);
+    if (removalPromise === work) {
+      removalPromise = null;
+    }
+  });
+
+  removalPromise = work;
+  return work;
 }
 
 export async function getOfflineResourceSizes() {

@@ -21,10 +21,12 @@ function materialStatus(material: Material) {
 export function MaterialCard({
   material,
   topics,
+  onOptionsPress,
   onPress,
 }: {
   material: Material;
   topics: Topic[];
+  onOptionsPress: () => void;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -33,53 +35,78 @@ export function MaterialCard({
   const status = materialStatus(material);
 
   return (
-    <Pressable
-      accessibilityHint="Opens the material overview"
-      accessibilityLabel={`${material.title}. ${status.label}`}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        {
-          backgroundColor: pressed ? theme.surfaceSelected : theme.surfaceElevated,
-          borderColor: pressed ? theme.borderStrong : theme.border,
-        },
-      ]}>
-      <View style={styles.top}>
-        <View style={[styles.icon, { backgroundColor: theme.primarySoft }]}>
-          <Ionicons name="document-text-outline" color={theme.primary} size={24} />
+    <View style={styles.wrapper}>
+      <Pressable
+        accessibilityHint="Opens the material overview"
+        accessibilityLabel={`${material.title}. ${status.label}`}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.card,
+          {
+            backgroundColor: pressed ? theme.surfaceSelected : theme.background,
+            borderColor: pressed ? theme.borderStrong : theme.border,
+          },
+        ]}>
+        <View style={styles.top}>
+          <View style={[styles.icon, { backgroundColor: theme.primarySoft }]}>
+            <Ionicons name="document-text-outline" color={theme.primary} size={24} />
+          </View>
+          <View style={styles.flex}>
+            <ThemedText type="subtitle" numberOfLines={2}>
+              {material.title}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {material.fileType.toUpperCase()}
+              {material.fileSize ? ` · ${(material.fileSize / 1_048_576).toFixed(1)} MB` : ''}
+            </ThemedText>
+          </View>
+          <View style={styles.optionsSpace} />
         </View>
-        <View style={styles.flex}>
-          <ThemedText type="subtitle" numberOfLines={2}>
-            {material.title}
-          </ThemedText>
+        <StatusBadge label={status.label} tone={status.tone} />
+        {topics.length > 0 ? (
+          <View style={styles.progress}>
+            <ProgressBar value={progress} accessibilityLabel={`${material.title} progress`} />
+            <ThemedText type="caption" themeColor="textSecondary">
+              {completed} of {topics.length} topics completed
+            </ThemedText>
+          </View>
+        ) : (
           <ThemedText type="small" themeColor="textSecondary">
-            {material.fileType.toUpperCase()}
-            {material.fileSize ? ` · ${(material.fileSize / 1_048_576).toFixed(1)} MB` : ''}
+            {material.sourceFileState !== 'available'
+              ? 'Import the source again or remove this material.'
+              : material.statusMessage ?? 'Open this material to prepare it for study.'}
           </ThemedText>
-        </View>
-        <Ionicons name="chevron-forward" color={theme.textMuted} size={22} />
-      </View>
-      <StatusBadge label={status.label} tone={status.tone} />
-      {topics.length > 0 ? (
-        <View style={styles.progress}>
-          <ProgressBar value={progress} accessibilityLabel={`${material.title} progress`} />
-          <ThemedText type="caption" themeColor="textSecondary">
-            {completed} of {topics.length} topics completed
-          </ThemedText>
-        </View>
-      ) : (
-        <ThemedText type="small" themeColor="textSecondary">
-          {material.sourceFileState !== 'available'
-            ? 'Import the source again or remove this material.'
-            : material.statusMessage ?? 'Open this material to prepare it for study.'}
-        </ThemedText>
-      )}
-    </Pressable>
+        )}
+      </Pressable>
+      <Pressable
+        accessibilityHint={`Shows options for ${material.title}`}
+        accessibilityLabel={`Options for ${material.title}`}
+        accessibilityRole="button"
+        hitSlop={Spacing.two}
+        onPress={onOptionsPress}
+        style={({ pressed }) => [
+          styles.options,
+          {
+            backgroundColor: pressed ? theme.surfaceSelected : theme.backgroundElement,
+          },
+        ]}>
+        <Ionicons
+          accessibilityElementsHidden
+          color={theme.textSecondary}
+          importantForAccessibility="no-hide-descendants"
+          name="ellipsis-vertical"
+          size={22}
+        />
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    position: 'relative',
+  },
   card: {
     borderCurve: 'continuous',
     borderRadius: Radius.large,
@@ -97,5 +124,20 @@ const styles = StyleSheet.create({
     width: TouchTarget,
   },
   flex: { flex: 1, gap: Spacing.one },
+  optionsSpace: {
+    width: TouchTarget,
+  },
+  options: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: TouchTarget / 2,
+    height: TouchTarget,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: Spacing.three,
+    top: Spacing.three,
+    width: TouchTarget,
+    zIndex: 1,
+  },
   progress: { gap: Spacing.two },
 });

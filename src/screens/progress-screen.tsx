@@ -76,7 +76,7 @@ export default function ProgressScreen() {
                     style={[
                       styles.metric,
                       {
-                        backgroundColor: theme.surfaceElevated,
+                        backgroundColor: theme.surface,
                         borderColor: theme.border,
                         borderTopColor: accent,
                       },

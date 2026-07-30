@@ -55,6 +55,7 @@ describe('learning feature access prompts', () => {
       availability: 'unavailable',
       availabilityMessage: null,
       availabilityUpdatedAt: new Date(0).toISOString(),
+      resourceRemovalActive: false,
     });
   });
 
@@ -175,6 +176,24 @@ describe('learning feature access prompts', () => {
       'Checking offline AI',
       expect.objectContaining({
         description: expect.stringContaining('confirming'),
+      })
+    );
+  });
+
+  it('blocks conflicting AI actions while model resources are being removed', async () => {
+    useModelInstallationStore.setState({
+      availability: 'available',
+      resourceRemovalActive: true,
+    });
+    const { result } = await renderHook(() => useLearningFeatureAccess());
+
+    expect(result.current.modelInstalled).toBe(false);
+    expect(result.current.ensureAccess({ hasMaterial: true })).toBe(false);
+    expect(useAppOverlayStore.getState().actionSheet).toBeNull();
+    expect(mockToastInfo).toHaveBeenCalledWith(
+      'Removing offline AI',
+      expect.objectContaining({
+        description: expect.stringContaining('finish being removed'),
       })
     );
   });
