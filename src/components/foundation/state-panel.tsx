@@ -35,14 +35,13 @@ export function StatePanel({
       ? theme.dangerSoft
       : tone === 'success'
         ? theme.successSoft
-        : theme.primarySoft;
+        : "transparent";
 
   return (
     <View
       style={[
         styles.container,
         {
-          backgroundColor: theme.surfaceElevated,
           borderColor: theme.border,
         },
       ]}>
@@ -84,5 +83,8 @@ const styles = StyleSheet.create({
   copy: {
     gap: Spacing.two,
   },
-  title: { fontSize: 22, lineHeight: 28 },
+  title: { 
+    fontSize: 22, 
+    lineHeight: 28 
+  },
 });

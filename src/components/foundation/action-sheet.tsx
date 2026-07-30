@@ -44,10 +44,7 @@ export function ActionSheet() {
       onDismiss={close}
     >
       <BottomSheetView
-        style={[
-          styles.container,
-          { backgroundColor: theme.surfaceElevated },
-        ]}
+        style={styles.container}
       >
         <View
           style={[

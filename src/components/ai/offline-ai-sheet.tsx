@@ -113,12 +113,7 @@ export function OfflineAiSheet() {
       onDismiss={close}
       enableDynamicSizing={true}
     >
-      <BottomSheetView
-        style={[
-          styles.container,
-          { backgroundColor: theme.surfaceElevated },
-        ]}
-      >
+      <BottomSheetView style={styles.container}>
         {installing ? <DownloadWakeLock /> : null}
         <View style={styles.heading}>
           <View

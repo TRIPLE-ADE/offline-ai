@@ -1,17 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useSQLiteContext } from "expo-sqlite";
 import { useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { PrimaryButton } from "@/components/foundation/primary-button";
 import { StatePanel } from "@/components/foundation/state-panel";
 import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
 import { Elevation, Radius, Spacing } from "@/constants/theme";
 import { MaterialRepository } from "@/db/repositories/material-repository";
 import type { CreateMaterialInput } from "@/db/types";
@@ -93,119 +87,99 @@ export function ImportMaterialContent({
   };
 
   return (
-    <ThemedView
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.surfaceElevated,
-        },
-      ]}
-    >
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.sheetHeading}>
+    <View style={styles.container}>
+      <View style={styles.sheetHeading}>
+        <View style={styles.flex}>
+          <ThemedText type="caption" style={{ color: theme.primary }}>
+            {draft ? "CONFIRM FILE" : "IMPORT MATERIAL"}
+          </ThemedText>
+          <ThemedText type="title">
+            {draft ? "Review file details" : "Choose a file to study"}
+          </ThemedText>
+        </View>
+      </View>
+
+      <ThemedText themeColor="textSecondary">
+        {draft
+          ? "Check the details before LearnGuide prepares this material for offline study."
+          : "Choose a TXT file or selectable-text PDF. Your file stays on this device."}
+      </ThemedText>
+
+      {!draft ? (
+        <StatePanel
+          actionLabel={choosing ? "Opening files…" : "Choose a file"}
+          body="Supported: TXT and text-based PDF. Scanned or password-protected PDFs cannot be read in this version."
+          icon="document-text-outline"
+          onAction={() => void choose()}
+          title="Select notes, a handout, or a course PDF"
+        />
+      ) : (
+        <View
+          style={[
+            styles.fileCard,
+            {
+              borderColor: theme.border,
+              borderTopColor: theme.secondary,
+              shadowColor: theme.shadow,
+            },
+          ]}
+        >
+          <View
+            style={[styles.fileIcon, { backgroundColor: theme.secondarySoft }]}
+          >
+            <Ionicons
+              name="document-text-outline"
+              color={theme.secondary}
+              size={30}
+            />
+          </View>
           <View style={styles.flex}>
-            <ThemedText type="caption" style={{ color: theme.primary }}>
-              {draft ? "CONFIRM FILE" : "IMPORT MATERIAL"}
+            <ThemedText type="heading" numberOfLines={3}>
+              {draft.title}
             </ThemedText>
-            <ThemedText type="title">
-              {draft ? "Review file details" : "Choose a file to study"}
+            <ThemedText themeColor="textSecondary">
+              {draft.fileType.toUpperCase()} · {formatSize(draft.fileSize)}
+            </ThemedText>
+          </View>
+          <View
+            style={[styles.privacyNote, { backgroundColor: theme.primarySoft }]}
+          >
+            <Ionicons
+              name="lock-closed-outline"
+              color={theme.primary}
+              size={20}
+            />
+            <ThemedText type="small" style={styles.flex}>
+              A private copy is stored inside LearnGuide. The original file is
+              not changed.
             </ThemedText>
           </View>
         </View>
+      )}
 
-        <ThemedText themeColor="textSecondary">
-          {draft
-            ? "Check the details before LearnGuide prepares this material for offline study."
-            : "Choose a TXT file or selectable-text PDF. Your file stays on this device."}
-        </ThemedText>
-
-        {!draft ? (
-          <StatePanel
-            actionLabel={choosing ? "Opening files…" : "Choose a file"}
-            body="Supported: TXT and text-based PDF. Scanned or password-protected PDFs cannot be read in this version."
-            icon="document-text-outline"
-            onAction={() => void choose()}
-            title="Select notes, a handout, or a course PDF"
+      {error ? (
+        <View style={[styles.error, { backgroundColor: theme.dangerSoft }]}>
+          <Ionicons
+            name="alert-circle-outline"
+            color={theme.danger}
+            size={22}
           />
-        ) : (
-          <View
-            style={[
-              styles.fileCard,
-              {
-                backgroundColor: theme.surfaceElevated,
-                borderColor: theme.border,
-                borderTopColor: theme.secondary,
-                shadowColor: theme.shadow,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.fileIcon,
-                { backgroundColor: theme.secondarySoft },
-              ]}
-            >
-              <Ionicons
-                name="document-text-outline"
-                color={theme.secondary}
-                size={30}
-              />
-            </View>
-            <View style={styles.flex}>
-              <ThemedText type="heading" numberOfLines={3}>
-                {draft.title}
-              </ThemedText>
-              <ThemedText themeColor="textSecondary">
-                {draft.fileType.toUpperCase()} · {formatSize(draft.fileSize)}
-              </ThemedText>
-            </View>
-            <View
-              style={[
-                styles.privacyNote,
-                { backgroundColor: theme.primarySoft },
-              ]}
-            >
-              <Ionicons
-                name="lock-closed-outline"
-                color={theme.primary}
-                size={20}
-              />
-              <ThemedText type="small" style={styles.flex}>
-                A private copy is stored inside LearnGuide. The original file is not
-                changed.
-              </ThemedText>
-            </View>
+          <View style={styles.flex}>
+            <ThemedText type="smallBold" style={{ color: theme.danger }}>
+              Import needs attention
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.danger }}>
+              {error}
+            </ThemedText>
           </View>
-        )}
-
-        {error ? (
-          <View style={[styles.error, { backgroundColor: theme.dangerSoft }]}>
-            <Ionicons
-              name="alert-circle-outline"
-              color={theme.danger}
-              size={22}
-            />
-            <View style={styles.flex}>
-              <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                Import needs attention
-              </ThemedText>
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                {error}
-              </ThemedText>
-            </View>
-          </View>
-        ) : null}
-      </ScrollView>
+        </View>
+      ) : null}
 
       {draft ? (
         <View
           style={[
             styles.bottomActions,
             {
-              backgroundColor: theme.background,
               borderTopColor: theme.divider,
             },
           ]}
@@ -228,14 +202,13 @@ export function ImportMaterialContent({
           />
         </View>
       ) : null}
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: {
-    flexGrow: 1,
+  container: {
+    flex: 1,
     gap: Spacing.four,
     paddingBottom: Spacing.four,
     paddingHorizontal: Spacing.four,
@@ -261,7 +234,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 56,
   },
-  flex: { flex: 1 },
+  flex: { 
+    flex: 1 
+  },
   privacyNote: {
     alignItems: "flex-start",
     flexDirection: "row",
